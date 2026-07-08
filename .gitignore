@@ -1,0 +1,26 @@
+# Ambientes Virtuais
+venv/
+env/
+.venv/
+
+# Variáveis de Ambiente e Segredos (CRÍTICO)
+.env
+.env.local
+
+# Arquivos compilados do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Configurações de IDEs e Editores
+.vscode/
+.idea/
+*.swp
+*.txt
+
+# Arquivos de Sistema Operacional
+.DS_Store
+Thumbs.db
+
+# Documentação Interna (Não enviar)
+DOC/

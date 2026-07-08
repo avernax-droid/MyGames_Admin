@@ -1,0 +1,29 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: dashboard.html
+  DATA DE CRIAÇÃO: 30/05/2026
+  TÍTULO: Visão Geral do Sistema (Dashboard)
+  FUNÇÃO: Página inicial do painel administrativo exibida logo após o login 
+  bem-sucedido. Herda a estrutura principal do base.html e servirá futuramente 
+  para exibir métricas gerais (resumo de protocolos abertos, itens pendentes, etc).
+  
+  HISTÓRICO DE ALTERAÇÕES:
+  - 30/05/2026: Criação da interface inicial herdando a estrutura do base.html.
+  ==============================================================================
+#}
+{% extends 'base.html' %}
+
+{% block title %}Visão Geral - MyGames Admin{% endblock %}
+
+{% block page_title %}Visão Geral do Sistema{% endblock %}
+
+{% block content %}
+    <div class="card-admin">
+        <h3 style="color: var(--cor-destaque); margin-bottom: 15px;">Bem-vindo ao Novo Backoffice</h3>
+        <p style="color: var(--texto-dim); line-height: 1.6;">
+            A estrutura visual administrativa foi criada com sucesso. <br>
+            Utilize a barra lateral para navegar pelos módulos de gestão quando eles estiverem disponíveis.
+        </p>
+    </div>
+{% endblock %}

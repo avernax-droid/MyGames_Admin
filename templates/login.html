@@ -1,0 +1,333 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: login.html
+  DATA DE CRIAÇÃO: 30/05/2026
+  TÍTULO: Tela de Autenticação e Registro da Equipe
+  FUNÇÃO: Interface pública do painel administrativo. Gerencia o login tradicional
+  e o fluxo de Auto-Cadastro (Solicitação de Acesso) para novos membros.
+  
+  HISTÓRICO DE ALTERAÇÕES:
+  - 30/05/2026: Criação da interface inicial seguindo a identidade visual Dark Mode.
+  - 30/05/2026: Alteração do campo de credencial de E-mail para Identidade do Usuário.
+  - 15/06/2026: Implementação do fluxo de Auto-Cadastro com transição via JS (formulário duplo), 
+                inclusão de validação de confirmação de senha e suporte a flash messages de sucesso.
+  - 25/06/2026: Remoção dos textos de título ("Painel MyGames" e "Acesso restrito...") do login.
+  - 25/06/2026: Inclusão de ícone/toggle para ocultar/mostrar a senha via JavaScript.
+  - 25/06/2026: Adição de formulário triplo em JS para fluxo de Recuperação de Senha (Opção 2 - Senha Provisória).
+  - 25/06/2026: Auto-preenchimento do campo de usuário na tela de recuperação com base no input do login.
+  ==============================================================================
+#}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acesso Administrativo - MyGames</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg-fundo: #121212;
+            --cor-destaque: #00e676;
+            --texto-br: #ffffff;
+            --texto-dim: #aaaaaa;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        body { 
+            background-color: var(--bg-fundo); 
+            color: var(--texto-br); 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            padding: 20px;
+        }
+
+        .login-wrapper {
+            background: #1e1e1e;
+            padding: 40px;
+            border-radius: 12px;
+            border: 1px solid #333;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            transition: all 0.3s ease;
+        }
+
+        /* Estilização dos cabeçalhos dos formulários filhos */
+        .form-header-title {
+            text-align: center;
+            margin-bottom: 5px;
+            color: var(--cor-destaque);
+            font-size: 24px;
+        }
+
+        .form-header-subtitle {
+            text-align: center;
+            color: var(--texto-dim);
+            font-size: 14px;
+            margin-bottom: 25px;
+        }
+
+        .form-group { margin-bottom: 18px; }
+        
+        .form-group label { 
+            display: block; 
+            margin-bottom: 8px; 
+            color: var(--texto-dim); 
+            font-size: 13px; 
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .form-control { 
+            width: 100%; 
+            padding: 12px 14px; 
+            background: #121212; 
+            border: 1px solid #444; 
+            border-radius: 8px; 
+            color: #fff; 
+            font-size: 15px; 
+            transition: 0.3s; 
+        }
+        
+        .form-control:focus { 
+            outline: none; 
+            border-color: var(--cor-destaque); 
+            background: #252525;
+            box-shadow: 0 0 5px rgba(0, 230, 118, 0.2);
+        }
+
+        .btn-submit { 
+            width: 100%; 
+            padding: 14px; 
+            background: var(--cor-destaque); 
+            color: #000; 
+            border: none; 
+            border-radius: 8px; 
+            font-size: 15px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            transition: 0.3s; 
+            margin-top: 10px; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-submit:hover { background-color: #00b359; box-shadow: 0 0 10px rgba(0, 230, 118, 0.3); }
+
+        .flash-msg { 
+            padding: 12px; 
+            border-radius: 8px; 
+            margin-bottom: 20px; 
+            text-align: center; 
+            font-size: 13px; 
+            font-weight: bold;
+            border: 1px dashed;
+        }
+        .flash-error { background: rgba(255, 68, 68, 0.1); border-color: #ff4444; color: #ff4444; }
+        .flash-success { background: rgba(0, 230, 118, 0.1); border-color: var(--cor-destaque); color: var(--cor-destaque); }
+
+        /* --- TOGGLE LINK E ESQUECEU A SENHA --- */
+        .toggle-container {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+            color: var(--texto-dim);
+        }
+        .toggle-link {
+            color: var(--cor-destaque);
+            text-decoration: none;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .toggle-link:hover { text-decoration: underline; color: #fff; }
+
+        .forgot-password {
+            text-align: right;
+            margin-top: -10px;
+            margin-bottom: 15px;
+        }
+        .forgot-password a { font-size: 13px; }
+
+        /* --- UTILITÁRIOS --- */
+        .hidden { display: none; }
+        .row-dupla { display: flex; gap: 12px; }
+        .row-dupla .form-group { flex: 1; }
+        
+        /* Ajuste para o campo de senha ter espaço para o ícone do olho */
+        .input-senha-container .form-control { padding-right: 40px; }
+        .icone-senha { 
+            position: absolute; 
+            right: 15px; 
+            top: 50%; 
+            transform: translateY(-50%); 
+            cursor: pointer; 
+            color: var(--texto-dim); 
+            transition: 0.2s;
+        }
+        .icone-senha:hover { color: var(--cor-destaque); }
+    </style>
+</head>
+<body>
+
+    <div class="login-wrapper">
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-msg {% if category == 'success' %}flash-success{% else %}flash-error{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form action="/" method="POST" id="form-login">
+            <input type="hidden" name="acao" value="login">
+            
+            <div class="form-group">
+                <label>Identidade do Usuário</label>
+                <input type="text" name="usuario_login" id="login_usuario_input" class="form-control" placeholder="ex: antonio.verna" required autofocus>
+            </div>
+
+            <div class="form-group input-senha-container">
+                <label>Senha de Acesso</label>
+                <div style="position: relative;">
+                    <input type="password" id="senha_login" name="senha" class="form-control" placeholder="••••••••" required>
+                    <i class="fas fa-eye icone-senha" id="togglePassword"></i>
+                </div>
+            </div>
+            
+            <div class="forgot-password">
+                <a onclick="alternarFormularios('recuperacao')" class="toggle-link">Esqueceu a senha?</a>
+            </div>
+
+            <button type="submit" class="btn-submit"><i class="fas fa-sign-in-alt"></i> ACESSAR SISTEMA</button>
+            
+            <div class="toggle-container">
+                Ainda não tem acesso? <a class="toggle-link" onclick="alternarFormularios('registro')">Solicitar Conta</a>
+            </div>
+        </form>
+
+        <form action="/" method="POST" id="form-registro" class="hidden">
+            <h2 class="form-header-title">Solicitar Acesso</h2>
+            <p class="form-header-subtitle">Preencha seus dados para aprovação</p>
+            
+            <input type="hidden" name="acao" value="registrar">
+            
+            <div class="form-group">
+                <label>Nome Completo</label>
+                <input type="text" name="nome_completo" class="form-control" placeholder="Seu nome real" required>
+            </div>
+
+            <div class="form-group">
+                <label>Identidade do Usuário (Login)</label>
+                <input type="text" name="usuario_login" class="form-control" placeholder="ex: antonio.verna" style="text-transform: lowercase;" required>
+            </div>
+
+            <div class="form-group">
+                <label>E-mail Corporativo/Pessoal</label>
+                <input type="email" name="email" class="form-control" placeholder="ex: antonio@mygames.com" required>
+            </div>
+
+            <div class="row-dupla">
+                <div class="form-group">
+                    <label>Criar Senha</label>
+                    <input type="password" id="reg_senha" name="senha" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label>Confirmar Senha</label>
+                    <input type="password" id="reg_senha_conf" class="form-control" required>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-submit"><i class="fas fa-paper-plane"></i> ENVIAR SOLICITAÇÃO</button>
+            
+            <div class="toggle-container">
+                Já possui uma conta? <a class="toggle-link" onclick="alternarFormularios('login')">Fazer Login</a>
+            </div>
+        </form>
+
+        <form action="/" method="POST" id="form-recuperacao" class="hidden">
+            <h2 class="form-header-title">Recuperar Senha</h2>
+            <p class="form-header-subtitle">Enviaremos uma senha provisória para o seu e-mail cadastrado.</p>
+            
+            <input type="hidden" name="acao" value="recuperar_senha">
+            
+            <div class="form-group">
+                <label>Identidade do Usuário</label>
+                <input type="text" name="usuario_login" id="recuperacao_usuario_input" class="form-control" placeholder="ex: antonio.verna" required>
+            </div>
+
+            <button type="submit" class="btn-submit"><i class="fas fa-key"></i> SOLICITAR NOVA SENHA</button>
+            
+            <div class="toggle-container">
+                Lembrou a senha? <a class="toggle-link" onclick="alternarFormularios('login')">Voltar ao Login</a>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        const formLogin = document.getElementById('form-login');
+        const formRegistro = document.getElementById('form-registro');
+        const formRecuperacao = document.getElementById('form-recuperacao');
+
+        function alternarFormularios(alvo) {
+            // Oculta todos inicialmente
+            formLogin.classList.add('hidden');
+            formRegistro.classList.add('hidden');
+            formRecuperacao.classList.add('hidden');
+
+            // Mostra o alvo e foca no primeiro campo relevante
+            if (alvo === 'registro') {
+                formRegistro.classList.remove('hidden');
+                document.querySelector('#form-registro input[name="nome_completo"]').focus();
+            } else if (alvo === 'recuperacao') {
+                formRecuperacao.classList.remove('hidden');
+                
+                // Copia o valor do usuário digitado no form de login para o form de recuperação
+                const usuarioDigitado = document.getElementById('login_usuario_input').value;
+                const inputRecuperacao = document.getElementById('recuperacao_usuario_input');
+                
+                if (usuarioDigitado) {
+                    inputRecuperacao.value = usuarioDigitado;
+                }
+                
+                inputRecuperacao.focus();
+            } else {
+                formLogin.classList.remove('hidden');
+                document.getElementById('login_usuario_input').focus();
+            }
+        }
+
+        // --- VALIDAÇÃO DE SENHAS DO FORMULÁRIO DE REGISTRO ---
+        formRegistro.addEventListener('submit', function(e) {
+            const senha = document.getElementById('reg_senha').value;
+            const senhaConf = document.getElementById('reg_senha_conf').value;
+            
+            if (senha !== senhaConf) {
+                e.preventDefault(); // Interrompe o envio
+                alert('Atenção: A senha e a confirmação de senha não coincidem. Digite novamente.');
+                document.getElementById('reg_senha_conf').focus();
+            }
+        });
+
+        // --- LÓGICA DO ÍCONE DE MOSTRAR/OCULTAR SENHA ---
+        const togglePassword = document.getElementById('togglePassword');
+        const senhaInput = document.getElementById('senha_login');
+
+        togglePassword.addEventListener('click', function () {
+            const type = senhaInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            senhaInput.setAttribute('type', type);
+            
+            this.classList.toggle('fa-eye');
+            this.classList.toggle('fa-eye-slash');
+        });
+    </script>
+</body>
+</html>

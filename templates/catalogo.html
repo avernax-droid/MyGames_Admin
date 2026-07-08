@@ -1,0 +1,550 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: catalogo.html
+  DATA DE CRIAÇÃO: 01/06/2026
+  TÍTULO: Catálogo Mestre de Produtos
+  FUNÇÃO: Interface de listagem e gestão (CRUD) do Catálogo Mestre de produtos.
+          Utiliza janela Modal nativa para criação e edição ágil de itens sem 
+          necessidade de recarregar páginas separadas.
+  
+  HISTÓRICO DE ALTERAÇÕES:
+  - 01/06/2026: Criação da interface inicial com tabela e Modal em Dark Mode.
+  - 01/06/2026: Correção de bug no Jinja2 adicionando checagem condicional.
+  - 01/06/2026: Inclusão das colunas de plataforma, valor_venda_ref e valor_cred_base.
+  - 04/06/2026: Inclusão de rotina AJAX para salvamento silencioso e mensagens visuais.
+  - 04/06/2026: Bloqueio da tecla Enter nos campos do formulário para avançar foco.
+  - 04/06/2026: Alteração do modal para receber upload da foto (multipart/form-data) com preview.
+  - 04/06/2026: Implementação de Auto-completar inteligente que carrega dados de produtos já existentes.
+  ==============================================================================
+#}
+{% extends 'base.html' %}
+
+{% block title %}Catálogo de Produtos - MyGames Admin{% endblock %}
+
+{% block page_title %}
+    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <span>Catálogo Mestre</span>
+        <button onclick="abrirModalCatalogo()" class="btn-primary">
+            + Novo Produto
+        </button>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="card-admin">
+    <div style="overflow-x: auto;">
+        <table class="table-catalogo">
+            <thead>
+                <tr>
+                    <th width="5%">ID</th>
+                    <th width="25%">Nome do Produto</th>
+                    <th width="12%">Plataforma</th>
+                    <th width="13%">Categoria</th>
+                    <th width="12%">Val. Venda (Ref)</th>
+                    <th width="12%">Val. Base (PIX)</th>
+                    <th width="12%">Val. Base (Cred)</th>
+                    <th width="5%">Status</th>
+                    <th width="4%" style="text-align: center;">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if produtos %}
+                    {% for item in produtos %}
+                    <tr>
+                        <td style="color: var(--texto-dim);">#{{ item.id }}</td>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                {% if item.foto_oficial_url %}
+                                    <div style="width: 25px; height: 25px; border-radius: 4px; overflow: hidden; background: #333; display: flex; align-items: center; justify-content: center;">
+                                        <img src="{{ item.foto_oficial_url }}" alt="" style="max-width: 100%; max-height: 100%; object-fit: cover;">
+                                    </div>
+                                {% endif %}
+                                <strong>{{ item.nome_produto }}</strong>
+                            </div>
+                        </td>
+                        <td style="color: #e0e0e0;">{{ item.plataforma or '-' }}</td>
+                        <td>{{ item.categoria_nome or 'Categoria ' ~ item.categoria_id }}</td>
+                        
+                        <td style="color: #4fc3f7; font-family: monospace; font-size: 14px;">
+                            {% if item.valor_venda_ref is not none %}
+                                R$ {{ "%.2f"|format(item.valor_venda_ref) }}
+                            {% else %}
+                                R$ 0.00
+                            {% endif %}
+                        </td>
+                        
+                        <td style="color: var(--cor-destaque); font-family: monospace; font-size: 14px;">
+                            {% if item.valor_pix_base is not none %}
+                                R$ {{ "%.2f"|format(item.valor_pix_base) }}
+                            {% else %}
+                                R$ 0.00
+                            {% endif %}
+                        </td>
+                        
+                        <td style="color: #ffb74d; font-family: monospace; font-size: 14px;">
+                            {% if item.valor_cred_base is not none %}
+                                R$ {{ "%.2f"|format(item.valor_cred_base) }}
+                            {% else %}
+                                R$ 0.00
+                            {% endif %}
+                        </td>
+                        
+                        <td>
+                            {% if item.ativo %}
+                                <span class="badge badge-ativo">Ativo</span>
+                            {% else %}
+                                <span class="badge badge-inativo">Inativo</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: center;">
+                            <button class="btn-editar" 
+                                onclick="abrirModalCatalogo('{{ item.id }}', '{{ item.nome_produto }}', '{{ item.categoria_id }}', '{{ item.plataforma or '' }}', '{{ item.valor_venda_ref if item.valor_venda_ref is not none else '' }}', '{{ item.valor_pix_base if item.valor_pix_base is not none else '' }}', '{{ item.valor_cred_base if item.valor_cred_base is not none else '' }}', '{{ item.ativo }}', '{{ item.foto_oficial_url or '' }}')">
+                                Editar
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="9" style="text-align: center; padding: 30px; color: var(--texto-dim);">
+                            Nenhum produto cadastrado no catálogo ainda.
+                        </td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="modal-catalogo" class="modal-overlay">
+    <div class="modal-box card-admin" style="max-width: 600px;">
+        <header class="modal-header">
+            <h3 id="modal-titulo" style="color: var(--cor-destaque); margin: 0; text-transform: uppercase;">Novo Produto</h3>
+            <button type="button" class="btn-fechar" onclick="fecharModalCatalogo()">✖</button>
+        </header>
+
+        <form action="/catalogo/salvar" method="POST" id="form-catalogo" enctype="multipart/form-data">
+            <input type="hidden" name="id" id="modal-id" value="">
+
+            <div class="form-group" style="position: relative;">
+                <label for="modal-nome">Nome do Produto</label>
+                <input type="text" name="nome_produto" id="modal-nome" required class="input-dark" placeholder="Ex: Xbox Series S - 512GB" autocomplete="off">
+                <div id="lista-produtos" class="autocomplete-dropdown"></div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                    <label for="modal-plataforma">Plataforma</label>
+                    <input type="text" name="plataforma" id="modal-plataforma" class="input-dark" placeholder="Ex: Sony, Microsoft, Nintendo">
+                </div>
+                
+                <div class="form-group" style="flex: 1;">
+                    <label for="modal-categoria">Categoria</label>
+                    <select name="categoria_id" id="modal-categoria" required class="input-dark">
+                        <option value="" disabled selected>Selecione...</option>
+                        {% if categorias %}
+                            {% for cat in categorias %}
+                                <option value="{{ cat.id }}">{{ cat.nome_categoria }}</option>
+                            {% endfor %}
+                        {% else %}
+                            <option value="1">Consoles</option>
+                            <option value="2">Controles</option>
+                            <option value="3">Jogos Físicos</option>
+                            <option value="4">Acessórios</option>
+                        {% endif %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Foto Oficial do Produto</label>
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <label for="modal-foto" class="btn-secondary" style="margin: 0; padding: 8px 15px; width: max-content; display: inline-block; cursor: pointer; font-size: 12px;">SELECIONAR FOTO</label>
+                    <input type="file" name="foto_oficial" id="modal-foto" accept="image/*" style="display: none;">
+                    
+                    <div id="preview-container" style="display: none; width: 36px; height: 36px; border-radius: 4px; overflow: hidden; background: #222; border: 1px solid #444;">
+                        <img id="preview-img" src="" alt="Preview" style="width: 100%; height: 100%; object-fit: cover;">
+                    </div>
+                </div>
+
+                <small id="texto-foto-atual" style="color: var(--texto-dim); margin-top: 8px; display: none;">
+                    Foto atual no banco: <a href="#" target="_blank" id="link-foto-atual" style="color: var(--cor-destaque); text-decoration: none; font-weight: bold;">Ver Imagem</a>
+                </small>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                    <label for="modal-venda">Valor Venda Ref (R$)</label>
+                    <input type="number" step="0.01" min="0" name="valor_venda_ref" id="modal-venda" class="input-dark" placeholder="0.00">
+                </div>
+
+                <div class="form-group" style="flex: 1;">
+                    <label for="modal-valor">Valor PIX Base (R$)</label>
+                    <input type="number" step="0.01" min="0" name="valor_pix_base" id="modal-valor" class="input-dark" placeholder="0.00">
+                </div>
+                
+                <div class="form-group" style="flex: 1;">
+                    <label for="modal-credito">Valor Cred Base (R$)</label>
+                    <input type="number" step="0.01" min="0" name="valor_cred_base" id="modal-credito" class="input-dark" placeholder="0.00">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="modal-ativo">Status do Produto</label>
+                <select name="ativo" id="modal-ativo" required class="input-dark">
+                    <option value="1">Ativo (Aparece no Site)</option>
+                    <option value="0">Inativo (Oculto no Site)</option>
+                </select>
+            </div>
+
+            <div class="modal-acoes">
+                <button type="button" class="btn-secondary" onclick="fecharModalCatalogo()">CANCELAR</button>
+                <button type="submit" class="btn-primary">SALVAR PRODUTO</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+    /* Estilos da Tabela */
+    .table-catalogo { width: 100%; border-collapse: collapse; color: var(--texto-br); }
+    .table-catalogo th { background-color: #151515; padding: 15px; text-align: left; font-size: 12px; color: var(--texto-dim); border-bottom: 2px solid #333; text-transform: uppercase; }
+    .table-catalogo td { padding: 15px; border-bottom: 1px solid #2a2a2a; font-size: 14px; vertical-align: middle; }
+    .table-catalogo tbody tr:hover { background-color: rgba(255, 255, 255, 0.02); }
+
+    /* Badges e Botões da Tabela */
+    .badge { padding: 5px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+    .badge-ativo { background: rgba(0, 255, 0, 0.1); color: #00ff00; border: 1px solid rgba(0, 255, 0, 0.2); }
+    .badge-inativo { background: rgba(255, 255, 255, 0.05); color: #888; border: 1px solid #444; }
+    
+    .btn-editar { background: #333; border: 1px solid #555; color: var(--texto-br); padding: 6px 12px; border-radius: 4px; cursor: pointer; transition: 0.2s; font-size: 12px; }
+    .btn-editar:hover { background: #444; border-color: var(--cor-destaque); color: var(--cor-destaque); }
+
+    /* Estilos do Modal Overlay */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
+    .modal-box { width: 100%; max-width: 500px; background: #111; padding: 30px; position: relative; border: 1px solid #333; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 15px; margin-bottom: 20px; }
+    .btn-fechar { background: none; border: none; color: #888; font-size: 20px; cursor: pointer; transition: 0.2s; }
+    .btn-fechar:hover { color: #ff4444; }
+
+    /* Inputs do Formulário Dark Mode */
+    .form-group { margin-bottom: 15px; display: flex; flex-direction: column; gap: 5px; }
+    .form-row { display: flex; gap: 15px; }
+    .form-group label { color: var(--texto-dim); font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+    .input-dark { width: 100%; padding: 12px; background: #151515; border: 1px solid #333; border-radius: 6px; color: var(--texto-br); font-family: inherit; font-size: 14px; transition: 0.3s; }
+    .input-dark:focus { border-color: var(--cor-destaque); outline: none; background: #1a1a1a; box-shadow: 0 0 5px rgba(0, 255, 0, 0.1); }
+
+    /* Container de ações do modal */
+    .modal-acoes {
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px solid #2a2a2a;
+        display: flex;
+        justify-content: flex-end;
+        gap: 15px;
+    }
+    
+    /* Estilos Globais para Botões Primários e Secundários */
+    .btn-primary {
+        background-color: var(--cor-destaque);
+        color: #000000;
+        border: none;
+        padding: 10px 20px;
+        font-size: 13px;
+        font-weight: bold;
+        text-transform: uppercase;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: 0.2s ease-in-out;
+    }
+    
+    .btn-primary:hover {
+        background-color: #00b45a;
+        box-shadow: 0 0 10px rgba(0, 230, 118, 0.2);
+    }
+    
+    .btn-secondary {
+        background: transparent;
+        border: 1px solid #444;
+        color: var(--texto-dim);
+        padding: 10px 20px;
+        font-size: 13px;
+        font-weight: bold;
+        text-transform: uppercase;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: 0.2s ease-in-out;
+    }
+    
+    .btn-secondary:hover {
+        background-color: #222;
+        border-color: #666;
+        color: var(--texto-br);
+    }
+
+    /* Autocomplete CSS */
+    .autocomplete-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-top: none;
+        border-radius: 0 0 6px 6px;
+        z-index: 1001;
+        max-height: 200px;
+        overflow-y: auto;
+        display: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    .autocomplete-item {
+        padding: 10px 12px;
+        cursor: pointer;
+        color: var(--texto-br);
+        font-size: 13px;
+        border-bottom: 1px solid #222;
+        transition: 0.2s;
+    }
+    .autocomplete-item:last-child {
+        border-bottom: none;
+    }
+    .autocomplete-item:hover {
+        background-color: #252525;
+        color: var(--cor-destaque);
+    }
+    .autocomplete-item span.uf-tag {
+        color: #888;
+        font-size: 11px;
+        margin-left: 8px;
+        font-family: monospace;
+    }
+</style>
+
+<script>
+    // Preview instantâneo do Upload via FileReader
+    document.getElementById('modal-foto').addEventListener('change', function(event) {
+        const file = event.target.files[0];
+        const previewContainer = document.getElementById('preview-container');
+        const previewImg = document.getElementById('preview-img');
+        
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                previewImg.src = e.target.result;
+                previewContainer.style.display = 'block';
+            }
+            reader.readAsDataURL(file);
+        } else {
+            previewImg.src = '';
+            previewContainer.style.display = 'none';
+        }
+    });
+
+    // Função que alimenta o Modal Dinamicamente mapeando os campos
+    function abrirModalCatalogo(id = '', nome = '', categoriaId = '', plataforma = '', valorVenda = '', valorPix = '', valorCred = '', ativo = '1', fotoUrl = '') {
+        document.getElementById('modal-titulo').innerText = id ? 'Editar Produto' : 'Novo Produto';
+        
+        document.getElementById('modal-id').value = id;
+        document.getElementById('modal-nome').value = nome;
+        document.getElementById('modal-categoria').value = categoriaId;
+        document.getElementById('modal-plataforma').value = plataforma;
+        
+        document.getElementById('modal-venda').value = valorVenda ? parseFloat(valorVenda).toFixed(2) : '';
+        document.getElementById('modal-valor').value = valorPix ? parseFloat(valorPix).toFixed(2) : '';
+        document.getElementById('modal-credito').value = valorCred ? parseFloat(valorCred).toFixed(2) : '';
+        
+        document.getElementById('modal-ativo').value = ativo;
+        
+        const avisoFoto = document.getElementById('texto-foto-atual');
+        if (fotoUrl) {
+            document.getElementById('link-foto-atual').href = fotoUrl;
+            avisoFoto.style.display = 'block';
+        } else {
+            avisoFoto.style.display = 'none';
+        }
+
+        document.getElementById('preview-img').src = '';
+        document.getElementById('preview-container').style.display = 'none';
+        document.getElementById('modal-foto').value = '';
+        document.getElementById('lista-produtos').style.display = 'none';
+
+        const msgDiv = document.getElementById('modal-mensagem');
+        if (msgDiv) msgDiv.remove();
+
+        const btnSubmit = document.querySelector('#form-catalogo button[type="submit"]');
+        if(btnSubmit) {
+            btnSubmit.disabled = false;
+            btnSubmit.innerText = 'SALVAR PRODUTO';
+        }
+
+        document.getElementById('modal-catalogo').style.display = 'flex';
+    }
+
+    function fecharModalCatalogo() {
+        document.getElementById('modal-catalogo').style.display = 'none';
+        document.getElementById('form-catalogo').reset();
+        document.getElementById('texto-foto-atual').style.display = 'none';
+        document.getElementById('preview-img').src = '';
+        document.getElementById('preview-container').style.display = 'none';
+        document.getElementById('lista-produtos').style.display = 'none';
+    }
+    
+    document.getElementById('modal-catalogo').addEventListener('click', function(e) {
+        if (e.target === this) {
+            fecharModalCatalogo();
+        }
+    });
+
+    // Lógica do Autocomplete de Produtos Inteligente
+    document.addEventListener("DOMContentLoaded", function() {
+        const inputNome = document.getElementById('modal-nome');
+        const listaResultados = document.getElementById('lista-produtos');
+        let timeoutBusca;
+
+        inputNome.addEventListener('input', function() {
+            clearTimeout(timeoutBusca);
+            const termo = this.value.trim();
+
+            if (termo.length < 2) {
+                listaResultados.style.display = 'none';
+                return;
+            }
+
+            timeoutBusca = setTimeout(() => {
+                fetch(`/api/buscar_produtos_nome?q=${encodeURIComponent(termo)}`)
+                    .then(response => response.json())
+                    .then(dados => {
+                        listaResultados.innerHTML = '';
+                        
+                        if (dados.length > 0) {
+                            dados.forEach(item => {
+                                const div = document.createElement('div');
+                                div.className = 'autocomplete-item';
+                                div.innerHTML = `<strong>${item.nome_produto}</strong> <span class="uf-tag">(${item.plataforma || 'N/A'})</span>`;
+                                
+                                div.addEventListener('click', function() {
+                                    // Preenche o formulário com os dados do produto existente
+                                    document.getElementById('modal-id').value = item.id;
+                                    document.getElementById('modal-nome').value = item.nome_produto;
+                                    document.getElementById('modal-categoria').value = item.categoria_id;
+                                    document.getElementById('modal-plataforma').value = item.plataforma || '';
+                                    
+                                    document.getElementById('modal-venda').value = item.valor_venda_ref !== null ? parseFloat(item.valor_venda_ref).toFixed(2) : '';
+                                    document.getElementById('modal-valor').value = item.valor_pix_base !== null ? parseFloat(item.valor_pix_base).toFixed(2) : '';
+                                    document.getElementById('modal-credito').value = item.valor_cred_base !== null ? parseFloat(item.valor_cred_base).toFixed(2) : '';
+                                    
+                                    document.getElementById('modal-ativo').value = item.ativo;
+                                    document.getElementById('modal-titulo').innerText = 'Editar Produto';
+
+                                    const avisoFoto = document.getElementById('texto-foto-atual');
+                                    if (item.foto_oficial_url) {
+                                        document.getElementById('link-foto-atual').href = item.foto_oficial_url;
+                                        avisoFoto.style.display = 'block';
+                                    } else {
+                                        avisoFoto.style.display = 'none';
+                                    }
+
+                                    listaResultados.style.display = 'none';
+                                });
+                                
+                                listaResultados.appendChild(div);
+                            });
+                            listaResultados.style.display = 'block';
+                        } else {
+                            listaResultados.style.display = 'none';
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Erro ao buscar produtos:', err);
+                        listaResultados.style.display = 'none';
+                    });
+            }, 300); // 300ms de Debounce
+        });
+
+        // Esconde lista se clicar fora do input de nome
+        document.addEventListener('click', function(e) {
+            if (e.target !== inputNome && e.target !== listaResultados) {
+                listaResultados.style.display = 'none';
+            }
+        });
+    });
+
+    // Interceptação da tecla "Enter" para avançar campos em vez de submeter
+    document.addEventListener("keydown", function(e) {
+        if (e.key === "Enter" && e.target.closest("#form-catalogo")) {
+            if (e.target.tagName !== "BUTTON" && e.target.tagName !== "TEXTAREA" && e.target.type !== "file") {
+                e.preventDefault(); 
+                
+                const form = document.getElementById("form-catalogo");
+                const focusableElements = Array.from(form.querySelectorAll('input, select, button[type="submit"]'))
+                                              .filter(el => !el.disabled && el.tabIndex !== -1);
+                
+                const index = focusableElements.indexOf(e.target);
+                if (index > -1 && index < focusableElements.length - 1) {
+                    focusableElements[index + 1].focus(); 
+                }
+            }
+        }
+    });
+
+    // Submissão Silenciosa (AJAX) do Catálogo (Suporta File Upload via FormData)
+    document.getElementById('form-catalogo').addEventListener('submit', function(e) {
+        e.preventDefault(); 
+        
+        const form = this;
+        const formData = new FormData(form);
+        const btnSubmit = form.querySelector('button[type="submit"]');
+
+        btnSubmit.disabled = true;
+        btnSubmit.innerText = 'SALVANDO...';
+
+        fetch(form.action, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'Accept': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            let msgDiv = document.getElementById('modal-mensagem');
+            if (!msgDiv) {
+                msgDiv = document.createElement('div');
+                msgDiv.id = 'modal-mensagem';
+                msgDiv.style.padding = '12px';
+                msgDiv.style.marginBottom = '20px';
+                msgDiv.style.borderRadius = '6px';
+                msgDiv.style.textAlign = 'center';
+                msgDiv.style.fontWeight = 'bold';
+                form.insertBefore(msgDiv, form.firstChild);
+            }
+
+            msgDiv.innerText = data.mensagem;
+
+            if (data.sucesso) {
+                msgDiv.style.color = '#00ff00';
+                msgDiv.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
+                msgDiv.style.border = '1px solid rgba(0, 255, 0, 0.2)';
+                
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
+            } else {
+                msgDiv.style.color = '#ff4444';
+                msgDiv.style.backgroundColor = 'rgba(255, 68, 68, 0.05)';
+                msgDiv.style.border = '1px dashed #ff4444';
+                
+                btnSubmit.disabled = false;
+                btnSubmit.innerText = 'SALVAR PRODUTO';
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            btnSubmit.disabled = false;
+            btnSubmit.innerText = 'SALVAR PRODUTO';
+        });
+    });
+</script>
+{% endblock %}

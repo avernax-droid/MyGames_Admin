@@ -1,0 +1,616 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: pericia_esteira.html
+  DATA DE CRIAÇÃO: 10/06/2026
+  TÍTULO: Esteira de Gestão - Fila de Trabalho
+  FUNÇÂO: Página de listagem de protocolos por status, com filtro e ordenação
+  
+  HISTÓRICO DE ALTERAÇÕES:
+  - 11/06/2026: Refatoração da UI: Implementação de Acordeão para itens do lote.
+  - 12/06/2026: UX Fluxo: Substituição por link direto via url_for no botão 'Voltar'.
+  - 27/06/2026: UX UI: Inclusão do painel de Dados Complementares.
+  - 30/06/2026: UX UI/Lógica: Refatoração profunda para Perícia Granular.
+  - 02/07/2026: Refatoração Backend-Driven: Substituição do campo textual 
+                status_item pela flag booleana recebido_fisicamente para 
+                maior segurança e blindagem da máquina de estados.
+  - 03/07/2026: Implementação da Fase de Laudo Técnico: Inclusão de decisão 
+                granulada (Aprovado/Parcial/Negado) e campos de valor final.
+  - 05/07/2026: Correção UI/UX (Máquina de Estados): Inversão da prioridade de 
+                renderização do Jinja para priorizar a exibição do status do 
+                laudo (status_item) sobre o status de triagem.
+  - 05/07/2026: Refatoração Estrutural (Jinja): Substituição da validação de texto 
+                (status_item) pela verificação da flag numérica (status_laudo_id) 
+                na renderização das badges de laudo.
+  - 05/07/2026: UX Fluxo: Implementação de roteamento dinâmico (parâmetro 'origem') 
+                no botão Voltar e no formulário de perícia para integração com o Monitor SLA.
+  - 06/07/2026: Regra de Negócio: Inclusão de precificação manual (Sob Consulta)
+                no Laudo Técnico para itens que chegam com valor_pix_base = 0.
+  ==============================================================================
+#}
+
+{% extends 'base.html' %}
+
+{% block title %}Perícia #{{ protocolo.numero_protocolo }} - MyGames Admin{% endblock %}
+
+{% block page_title %}Realizar Perícia - Protocolo #{{ protocolo.numero_protocolo }}{% endblock %}
+
+{% block content %}
+<style>
+    .grid-pericia { display: grid; grid-template-columns: 3fr 2fr; gap: 25px; }
+    .painel-leitura, .painel-acao { background: var(--bg-card); border: 1px solid #333; border-radius: 12px; padding: 25px; }
+    .titulo-painel { color: var(--cor-destaque); font-size: 16px; text-transform: uppercase; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+
+    /* Estilos do Acordeão Nativo (Details/Summary) */
+    .acordeao-item { background: #151515; border: 1px solid #333; border-radius: 8px; margin-bottom: 15px; overflow: hidden; }
+    .acordeao-header { padding: 15px; cursor: pointer; color: var(--cor-destaque); font-size: 15px; font-weight: bold; background: #1a1a1a; transition: background 0.2s; list-style: none; }
+    .acordeao-header::-webkit-details-marker { display: none; }
+    .acordeao-header:hover { background: #222; }
+    .acordeao-header::after { content: '\25BC'; float: right; font-size: 12px; color: #666; transition: transform 0.3s; }
+    details[open] .acordeao-header::after { transform: rotate(180deg); }
+    .acordeao-body { padding: 15px; border-top: 1px solid #333; }
+
+    /* Formulário */
+    .form-group { margin-bottom: 20px; }
+    .form-label { display: block; margin-bottom: 8px; color: var(--texto-dim); font-size: 13px; font-weight: bold; }
+    .form-control { width: 100%; padding: 12px; background: #121212; border: 1px solid #444; color: white; border-radius: 6px; font-size: 14px; }
+    .form-control:focus { border-color: var(--cor-destaque); outline: none; }
+    
+    .btn-salvar-lote { padding: 15px; background: var(--cor-destaque); color: #000; border: none; border-radius: 6px; font-weight: bold; font-size: 16px; transition: 0.3s; text-transform: uppercase; width: auto; padding-left: 40px; padding-right: 40px; }
+    .btn-salvar-lote:hover:not(:disabled) { filter: brightness(0.9); cursor: pointer; }
+    .btn-salvar-lote:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    .btn-voltar { padding: 10px 20px; background: transparent; color: var(--texto-dim); border: 1px solid var(--texto-dim); border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: bold; transition: 0.3s; display: inline-block; cursor: pointer; }
+    .btn-voltar:hover { background: var(--texto-dim); color: var(--bg-fundo); }
+
+    /* Estilos dos Controles Granulares */
+    .bloco-controles { background: #111; border: 1px solid #333; border-radius: 6px; padding: 15px; margin-top: 15px; display: none; }
+    .radio-label { display: inline-flex; align-items: center; margin-right: 20px; color: #ccc; font-size: 13px; cursor: pointer; }
+    .radio-label input { margin-right: 8px; cursor: pointer; }
+    .btn-salvar-item { background: #333; color: #fff; padding: 8px 15px; border-radius: 6px; border: none; font-size: 13px; font-weight: bold; cursor: not-allowed; opacity: 0.5; transition: 0.3s; }
+    .btn-salvar-item.habilitado { background: #0dcaf0; color: #000; cursor: pointer; opacity: 1; }
+    .btn-salvar-item.habilitado:hover { background: #0bacce; }
+
+    /* Estilos do Laudo Técnico */
+    .bloco-laudo { background: #111; border: 1px solid #333; border-radius: 6px; padding: 15px; margin-top: 15px; display: none; }
+    .textarea-laudo { width: 100%; height: 80px; background: #121212; border: 1px solid #444; color: white; border-radius: 6px; padding: 10px; margin-top: 15px; font-size: 13px; resize: vertical; display: none; }
+    .textarea-laudo:focus { border-color: var(--cor-destaque); outline: none; }
+    .input-valor-parcial { background: #121212; border: 1px solid #444; color: #4CAF50; border-radius: 6px; padding: 8px; font-size: 14px; width: 150px; margin-top: 15px; display: none; font-weight: bold; }
+    .input-valor-parcial:focus { border-color: var(--cor-destaque); outline: none; }
+</style>
+
+<div class="grid-pericia">
+    
+    <div class="painel-leitura">
+        <h3 class="titulo-painel" style="display: flex; justify-content: space-between; align-items: center;">
+            <span><i class="fas fa-box-open"></i> Lote do Cliente: {{ protocolo.cliente_nome }}</span>
+            <span style="font-size: 13px; color: #4CAF50; font-weight: normal; text-transform: none;">
+                <i class="fas fa-clock" style="margin-right: 5px;"></i> Status atual desde: {{ protocolo.data_status_atual.strftime('%d/%m/%Y às %H:%M') if protocolo.data_status_atual else 'N/A' }}
+            </span>
+        </h3>
+
+        <div class="dados-complementares" style="background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; margin-bottom: 20px;">
+            <h4 style="color: var(--texto-dim); font-size: 12px; text-transform: uppercase; margin-bottom: 10px; letter-spacing: 1px;">Dados do Cliente e Logística</h4>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div>
+                    <p style="font-size: 13px; color: #ccc; margin-bottom: 5px; line-height: 1.4;">
+                        <i class="fas fa-map-marker-alt" style="color: #888; width: 16px;"></i> 
+                        {% if protocolo.endereco %}
+                            {{ protocolo.endereco }}, {{ protocolo.numero }}
+                            {% if protocolo.complemento %} - {{ protocolo.complemento }}{% endif %}<br>
+                            <span style="margin-left: 20px;">{{ protocolo.bairro }} - {{ protocolo.cidade }}/{{ protocolo.estado_uf }}</span><br>
+                            <span style="margin-left: 20px;">CEP: 
+                                {% if protocolo.cep and protocolo.cep|string|length == 8 %}
+                                    {{ (protocolo.cep|string)[:5] }}-{{ (protocolo.cep|string)[5:] }}
+                                {% else %}
+                                    {{ protocolo.cep | default('Não informado') }}
+                                {% endif %}
+                            </span>
+                        {% else %}
+                            <span style="font-style: italic; color: #ff4444;">Endereço não cadastrado</span>
+                        {% endif %}
+                    </p>
+                    <p style="font-size: 13px; color: #ccc; margin-top: 10px;">
+                        <i class="fas fa-phone" style="color: var(--cor-destaque); width: 16px;"></i> Telefone: 
+                        <span style="color: var(--texto-br);">{{ protocolo.cliente_telefone | default('Não informado') }}</span>
+                    </p>
+                    <p style="font-size: 13px; color: #ccc; margin-top: 10px;">
+                        <i class="fab fa-pix" style="color: var(--cor-destaque); width: 16px;"></i> Chave PIX: 
+                        {% if protocolo.chave_pix %}
+                            <span style="color: var(--cor-destaque);">{{ protocolo.chave_pix }}</span>
+                        {% else %}
+                            <span style="color: var(--texto-dim); font-style: italic;">Não informada</span>
+                        {% endif %}
+                    </p>
+                </div>
+
+                <div style="border-left: 1px solid #333; padding-left: 15px;">
+                    <p style="font-size: 13px; color: #ccc; margin-bottom: 10px;">
+                        <i class="fas fa-box" style="color: #888; width: 16px;"></i> Rastreio: 
+                        {% if protocolo.codigo_rastreio %}
+                            <span style="color: var(--cor-destaque); background-color: rgba(0, 230, 118, 0.05); border: 1px solid rgba(0, 230, 118, 0.2); padding: 2px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; letter-spacing: 1px;">
+                                {{ protocolo.codigo_rastreio }}
+                            </span>
+                        {% else %}
+                            <span style="color: var(--texto-dim); font-style: italic;">Sem rastreio vinculado</span>
+                        {% endif %}
+                    </p>
+                    
+                    <div style="display: flex; flex-direction: column;">
+                        <strong style="font-size: 13px; color: #ccc; margin-bottom: 5px; width: auto; white-space: nowrap;"><i class="fas fa-shipping-fast" style="color: #888; width: 16px;"></i> Status Correios:</strong>
+                        {% if historico_rastreio and historico_rastreio|length > 0 %}
+                            <span style="background-color: #0dcaf0; color: #000; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; text-transform: uppercase; width: fit-content; margin-left: 20px;">
+                                {{ historico_rastreio[0].status }}
+                            </span>
+                            <small style="color: var(--texto-dim); margin-top: 5px; margin-left: 20px;">Atualizado em: {{ historico_rastreio[0].data }}<br><i class="fas fa-map-marker-alt"></i> {{ historico_rastreio[0].local }}</small>
+                        {% else %}
+                            <span style="color: var(--texto-dim); font-size: 13px; margin-left: 20px;">Aguardando postagem / Sem atualizações</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        {% set total_pix = namespace(value=0) %}
+        <div class="lista-itens" id="container-itens" style="max-height: 550px; overflow-y: auto; padding-right: 10px;">
+            {% for item in itens %}
+                {% set valor_calc = (item.valor_pix_unitario or 0) * (item.qtd_declarada or 1) %}
+                {% set total_pix.value = total_pix.value + valor_calc %}
+                
+                <details class="acordeao-item item-lote" 
+                         data-id="{{ item.id }}" 
+                         data-valor-original="{{ valor_calc }}" 
+                         data-valor-atual="{% if item.recebido_fisicamente == 0 %}0.00{% else %}{{ valor_calc }}{% endif %}" 
+                         data-status-recebido="{% if item.recebido_fisicamente == 1 %}true{% elif item.recebido_fisicamente == 0 %}false{% else %}null{% endif %}"
+                         data-avaliado="false">
+                    
+                        <summary class="acordeao-header">
+                        {{ item.qtd_declarada | default(1) }}x {{ item.categoria | default('Produto') }} - {{ item.nome_produto }} 
+                        <span class="span-valor-item" style="color: #4CAF50; float: right; margin-right: 15px;">
+                            R$ {% if item.recebido_fisicamente == 0 %}0.00{% else %}{{ "%.2f"|format(valor_calc) }}{% endif %}
+                            {% if valor_calc == 0 %}<span style="font-size: 10px; color: #ffc107; margin-left: 5px; background: rgba(255, 193, 7, 0.1); padding: 2px 4px; border-radius: 4px; border: 1px solid #ffc107;">(SOB CONSULTA)</span>{% endif %}
+                        </span>
+                        
+                        {% if item.status_laudo_id == 1 %}
+                            <span class="badge-status-item" style="float: right; margin-right: 15px; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #198754; color: #fff; display: inline-block;">LAUDO: APROVADO</span>
+                        {% elif item.status_laudo_id == 2 %}
+                            <span class="badge-status-item" style="float: right; margin-right: 15px; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #fd7e14; color: #fff; display: inline-block;">LAUDO: PARCIAL</span>
+                        {% elif item.status_laudo_id == 3 %}
+                            <span class="badge-status-item" style="float: right; margin-right: 15px; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #dc3545; color: #fff; display: inline-block;">LAUDO: NEGADO</span>
+                        {% elif item.recebido_fisicamente == 0 %}
+                            <span class="badge-status-item" style="float: right; margin-right: 15px; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #dc3545; color: #fff; display: inline-block;">NÃO RECEBIDO</span>
+                        {% elif item.recebido_fisicamente == 1 %}
+                            <span class="badge-status-item" style="float: right; margin-right: 15px; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #0dcaf0; color: #000; display: inline-block;">RECEBIDO</span>
+                        {% else %}
+                            <span class="badge-status-item" style="float: right; margin-right: 15px; font-size: 11px; padding: 2px 6px; border-radius: 4px; display: none;"></span>
+                        {% endif %}
+                    </summary>
+                    <div class="acordeao-body">
+                        <p style="font-size: 13px; color: #aaa; margin-bottom: 5px;">
+                            <strong style="color: #ccc;">Observações/Estado:</strong> 
+                            <span style="color: #ffc107;">{{ item.descricao_estado | default('Nenhuma observação informada.', true) }}</span>
+                        </p>
+                        
+                        <div class="mt-3">
+                            <strong style="font-size: 12px; color: #888; display: block; margin-bottom: 8px;">FOTOS DO PRODUTO:</strong>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                {% if item.fotos %}
+                                    {% for foto in item.fotos %}
+                                        <img src="/uploads/pericia/{{ foto }}" alt="Foto" style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; border: 1px solid #444; background: #000;">
+                                    {% endfor %}
+                                {% else %}
+                                    <span style="font-size: 12px; color: #555; font-style: italic;">Nenhuma foto anexada.</span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="bloco-controles">
+                            <strong style="font-size: 12px; color: var(--cor-destaque); display: block; margin-bottom: 8px;">CONFIRMAÇÃO DE RECEBIMENTO:</strong>
+                            <label class="radio-label">
+                                <input type="radio" name="recebimento_{{ item.id }}" value="recebido" 
+                                       {% if item.recebido_fisicamente == 1 %}checked disabled{% endif %}> Recebido
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="recebimento_{{ item.id }}" value="nao_recebido" 
+                                       {% if item.recebido_fisicamente == 0 %}checked disabled{% endif %}> Não Recebido
+                            </label>
+
+                            {% if item.recebido_fisicamente is none %}
+                            <div style="text-align: right; margin-top: 15px;">
+                                <span class="msg-sucesso-item" style="color: var(--cor-destaque); font-size: 12px; font-weight: bold; margin-right: 15px; display: none;"><i class="fas fa-check"></i> Salvo Temporariamente</span>
+                                <button type="button" class="btn-salvar-item">Salvar Item</button>
+                            </div>
+                            {% else %}
+                            <div style="text-align: right; margin-top: 15px;">
+                                <span style="color: #888; font-size: 12px; font-style: italic;"><i class="fas fa-lock"></i> Etapa Concluída</span>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="bloco-laudo">
+                            <strong style="font-size: 12px; color: #ffc107; display: block; margin-bottom: 8px;"><i class="fas fa-microscope"></i> AVALIAÇÃO TÉCNICA (LAUDO):</strong>
+                            <label class="radio-label">
+                                <input type="radio" name="laudo_{{ item.id }}" value="aprovado"> Aprovado
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="laudo_{{ item.id }}" value="parcial"> Parcial
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="laudo_{{ item.id }}" value="negado"> Negado
+                            </label>
+
+                            <div style="display: flex; gap: 10px; align-items: flex-start;">
+                                <input type="number" class="input-valor-parcial" id="valor_parcial_{{ item.id }}" placeholder="Novo Valor R$" step="0.01" min="0">
+                                <textarea class="textarea-laudo" id="texto_laudo_{{ item.id }}" placeholder="Descreva o parecer técnico obrigatório..."></textarea>
+                            </div>
+
+                            <div style="text-align: right; margin-top: 15px;">
+                                <span class="msg-sucesso-laudo" style="color: #ffc107; font-size: 12px; font-weight: bold; margin-right: 15px; display: none;"><i class="fas fa-check"></i> Laudo Salvo Temporariamente</span>
+                                <button type="button" class="btn-salvar-item-laudo btn-salvar-item">Registrar Laudo</button>
+                            </div>
+                        </div>
+
+                    </div>
+                </details>
+            {% else %}
+                <p style="color: #666; font-size: 14px; font-style: italic;">Nenhum item listado para este protocolo.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="painel-acao">
+        <h3 class="titulo-painel"><i class="fas fa-gavel"></i> Decisão Técnica e Financeira</h3>
+        
+        <form id="form-pericia" action="/esteira/salvar_pericia/{{ protocolo.id }}" method="POST">
+            <input type="hidden" name="origem" value="{{ request.args.get('origem', '') }}">
+            <input type="hidden" name="payload_itens" id="payload_itens" value="[]">
+
+            <div class="form-group">
+                <label class="form-label">Novo Status (Próxima Etapa)</label>
+                <select name="status_id" id="status_id" class="form-control" required>
+                    <option value="">-- Selecione uma decisão --</option>
+                    {% for s in lista_status %}
+                        <option value="{{ s.id }}" data-nome="{{ s.nome_exibicao|lower }}" {% if protocolo.status_id == s.id %}selected{% endif %}>
+                            {{ s.nome_exibicao }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group" style="background: #1a1a1a; padding: 15px; border-radius: 6px; border: 1px solid #333; margin-top: 25px;">
+                <label class="form-label" style="color: var(--cor-destaque); font-size: 14px;">Valor Final Avaliado do Lote (R$)</label>
+                <input type="text" id="valor_avaliado_display" class="form-control" style="font-size: 24px; font-weight: bold; color: #4CAF50; border: none; background: transparent; padding: 0;" value="{{ "%.2f"|format(protocolo.valor_avaliado if protocolo.valor_avaliado else total_pix.value) }}" readonly>
+                <input type="hidden" name="valor_avaliado" id="valor_avaliado" value="{{ protocolo.valor_avaliado if protocolo.valor_avaliado else total_pix.value }}">
+                <p style="font-size: 11px; color: #888; margin-top: 5px; margin-bottom: 0;">Valor calculado automaticamente pelas perícias dos itens.</p>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 30px; border-top: 1px solid #222; padding-top: 20px;">
+                {% set origem = request.args.get('origem') %}
+                <a href="{{ url_for('monitor_sla') if origem == 'monitor_sla' else url_for('esteira_protocolos', status_id=protocolo.status_id) }}" class="btn-voltar" style="text-decoration: none; color: var(--texto-dim); display: inline-block;">
+                    <i class="fas fa-arrow-left"></i> Voltar
+                </a>
+                <button type="submit" class="btn-salvar-lote" id="btn-salvar-lote" disabled>Salvar Lote</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const selectStatus = document.getElementById('status_id');
+        const containerItens = document.getElementById('container-itens');
+        const itemsLote = document.querySelectorAll('.item-lote');
+        const displayTotal = document.getElementById('valor_avaliado_display');
+        const inputTotalReal = document.getElementById('valor_avaliado');
+        const btnSalvarLote = document.getElementById('btn-salvar-lote');
+        const formPericia = document.getElementById('form-pericia');
+        const inputPayload = document.getElementById('payload_itens');
+        
+        // MÁQUINA DE ESTADOS: Registra o status com o qual o protocolo foi aberto
+        const statusOriginalDoBanco = "{{ protocolo.status_id }}";
+
+        // Recalcula o valor total com base nos subtotais em tempo real dos itens
+        function recalcularTotalLote() {
+            let novoTotal = 0;
+            itemsLote.forEach(item => {
+                novoTotal += parseFloat(item.dataset.valorAtual) || 0;
+            });
+            const formatado = novoTotal.toFixed(2);
+            displayTotal.value = formatado;
+            inputTotalReal.value = formatado;
+            
+            validarEstadoDoBotaoLote();
+        }
+
+// LÓGICA DE BLINDAGEM DO BOTÃO "SALVAR LOTE" (Evita Deadlocks e Salto de Etapa)
+        function validarEstadoDoBotaoLote() {
+            let todosItensTratados = true;
+            let existeItemEmExibicao = false;
+            
+            const novoStatusSelecionado = selectStatus.value !== "" && selectStatus.value !== statusOriginalDoBanco;
+            const opcaoSelecionada = selectStatus.options[selectStatus.selectedIndex];
+            const nomeStatusSelecionado = (opcaoSelecionada && opcaoSelecionada.dataset.nome) ? opcaoSelecionada.dataset.nome.toLowerCase() : "";
+
+            itemsLote.forEach(item => {
+                const controlesRecebimento = item.querySelector('.bloco-controles');
+                const controlesLaudo = item.querySelector('.bloco-laudo');
+                
+                // Se o bloco de recebimento ou o bloco de laudo está visível, o item precisa ser avaliado
+                if (controlesRecebimento.style.display !== 'none' || controlesLaudo.style.display !== 'none') {
+                    existeItemEmExibicao = true;
+                    if (item.dataset.avaliado !== 'true') {
+                        todosItensTratados = false;
+                    }
+                }
+            });
+
+            let statusAvancouCorretamente = novoStatusSelecionado;
+            if (existeItemEmExibicao && todosItensTratados) {
+                // NOVA TRAVA: Bloqueia se o operador mantiver o status de triagem OU de perícia.
+                if (nomeStatusSelecionado.includes('recebido') || 
+                    nomeStatusSelecionado.includes('perícia') || 
+                    nomeStatusSelecionado.includes('pericia')) {
+                    statusAvancouCorretamente = false; 
+                }
+            }
+
+            if (statusAvancouCorretamente && (!existeItemEmExibicao || todosItensTratados)) {
+                btnSalvarLote.disabled = false;
+            } else {
+                btnSalvarLote.disabled = true;
+            }
+        }
+
+        // CONTROLADOR DE EXIBIÇÃO POR FASE
+        selectStatus.addEventListener('change', function() {
+            const opcaoSelecionada = this.options[this.selectedIndex];
+            const nomeStatus = (opcaoSelecionada.dataset.nome || "").toLowerCase();
+            
+            itemsLote.forEach(item => {
+                if (item.dataset.avaliado === 'true') {
+                    return; 
+                }
+
+                const controlesRecebimento = item.querySelector('.bloco-controles');
+                const controlesLaudo = item.querySelector('.bloco-laudo');
+                const btnItem = item.querySelector('.btn-salvar-item');
+                
+                item.dataset.avaliado = 'false';
+                btnItem.classList.remove('habilitado');
+                btnItem.disabled = true;
+
+                if (nomeStatus.includes('recebido')) {
+                    controlesRecebimento.style.display = 'block';
+                    controlesLaudo.style.display = 'none';
+                    item.open = true;
+                } else if (nomeStatus.includes('perícia') || nomeStatus.includes('pericia')) {
+                    controlesRecebimento.style.display = 'none';
+                    // Só libera laudo se o item foi marcado fisicamente como recebido (true) no BD
+                    if (item.dataset.statusRecebido === "true") {
+                        controlesLaudo.style.display = 'block';
+                        item.open = true;
+                    } else {
+                        controlesLaudo.style.display = 'none';
+                    }
+                } else {
+                    controlesRecebimento.style.display = 'none';
+                    controlesLaudo.style.display = 'none';
+                    item.open = false;
+                }
+            });
+
+            validarEstadoDoBotaoLote();
+        });
+
+        // HABILITA O BOTÃO E CONTROLA OS CAMPOS APÓS SELEÇÃO DO RADIO
+        containerItens.addEventListener('change', function(e) {
+            const alvo = e.target;
+            const itemLote = alvo.closest('.item-lote');
+            
+            // Lógica do Recebimento Físico
+            if (itemLote && alvo.name.startsWith('recebimento_')) {
+                const btnItem = itemLote.querySelector('.btn-salvar-item');
+                btnItem.classList.add('habilitado');
+                btnItem.disabled = false;
+            }
+
+            // Lógica do Laudo Técnico
+            if (itemLote && alvo.name.startsWith('laudo_')) {
+                const btnItemLaudo = itemLote.querySelector('.btn-salvar-item-laudo');
+                const textarea = itemLote.querySelector('.textarea-laudo');
+                const inputValor = itemLote.querySelector('.input-valor-parcial');
+                const valorOriginalZerado = parseFloat(itemLote.dataset.valorOriginal) === 0;
+                
+                btnItemLaudo.classList.add('habilitado');
+                btnItemLaudo.disabled = false;
+
+                if (alvo.value === 'aprovado') {
+                    textarea.style.display = 'none';
+                    if (valorOriginalZerado) {
+                        inputValor.style.display = 'block';
+                        inputValor.placeholder = "Informar Valor R$";
+                    } else {
+                        inputValor.style.display = 'none';
+                    }
+                } else if (alvo.value === 'negado') {
+                    textarea.style.display = 'block';
+                    inputValor.style.display = 'none';
+                } else if (alvo.value === 'parcial') {
+                    textarea.style.display = 'block';
+                    inputValor.style.display = 'block';
+                    if (!inputValor.value && !valorOriginalZerado) {
+                        inputValor.value = itemLote.dataset.valorOriginal; // Sugere o valor base
+                    } else if (valorOriginalZerado) {
+                        inputValor.placeholder = "Informar Valor R$";
+                    }
+                }
+            }
+        });
+
+        // EXECUÇÃO DO SALVAMENTO INDIVIDUAL
+        containerItens.addEventListener('click', function(e) {
+            
+            // Salvamento do Recebimento Físico
+            if (e.target.classList.contains('btn-salvar-item') && !e.target.classList.contains('btn-salvar-item-laudo')) {
+                const btn = e.target;
+                const itemLote = btn.closest('.item-lote');
+                const badge = itemLote.querySelector('.badge-status-item');
+                const valorOriginal = parseFloat(itemLote.dataset.valorOriginal);
+                
+                const radioSelecionado = itemLote.querySelector('input[name^="recebimento_"]:checked');
+                
+                if (radioSelecionado) {
+                    if (radioSelecionado.value === 'nao_recebido') {
+                        itemLote.dataset.valorAtual = "0.00";
+                        badge.textContent = "NÃO RECEBIDO";
+                        badge.style.background = "#dc3545";
+                        itemLote.dataset.statusRecebido = "false";
+                    } else {
+                        itemLote.dataset.valorAtual = valorOriginal.toFixed(2);
+                        badge.textContent = "RECEBIDO";
+                        badge.style.background = "#0dcaf0";
+                        itemLote.dataset.statusRecebido = "true";
+                    }
+                    
+                    itemLote.querySelector('.span-valor-item').innerHTML = `R$ ${itemLote.dataset.valorAtual} ${valorOriginal === 0 && radioSelecionado.value !== 'nao_recebido' ? '<span style="font-size: 10px; color: #ffc107; margin-left: 5px; background: rgba(255, 193, 7, 0.1); padding: 2px 4px; border-radius: 4px; border: 1px solid #ffc107;">(SOB CONSULTA)</span>' : ''}`;
+                    badge.style.display = "inline-block";
+                    
+                    itemLote.dataset.avaliado = "true";
+                    btn.style.display = 'none';
+                    itemLote.querySelector('.msg-sucesso-item').style.display = 'inline-block';
+                    
+                    recalcularTotalLote();
+                    setTimeout(() => itemLote.open = false, 800);
+                }
+            }
+
+            // Salvamento do Laudo Técnico
+            if (e.target.classList.contains('btn-salvar-item-laudo')) {
+                const btn = e.target;
+                const itemLote = btn.closest('.item-lote');
+                const badge = itemLote.querySelector('.badge-status-item');
+                const radioSelecionado = itemLote.querySelector('input[name^="laudo_"]:checked');
+                const textarea = itemLote.querySelector('.textarea-laudo');
+                const inputValor = itemLote.querySelector('.input-valor-parcial');
+                const valorOriginalZerado = parseFloat(itemLote.dataset.valorOriginal) === 0;
+                
+                if (radioSelecionado) {
+                    const decisao = radioSelecionado.value;
+
+                    // Validações de segurança
+                    if ((decisao === 'negado' || decisao === 'parcial') && textarea.value.trim() === '') {
+                        alert("O preenchimento do Laudo Técnico é obrigatório para itens Negados ou Parciais.");
+                        textarea.focus();
+                        return;
+                    }
+                    if (decisao === 'parcial' && (inputValor.value === '' || parseFloat(inputValor.value) < 0)) {
+                        alert("Informe o novo valor validado para o item.");
+                        inputValor.focus();
+                        return;
+                    }
+                    
+                    // Validação específica para itens Sob Consulta
+                    if (decisao === 'aprovado' && valorOriginalZerado && (inputValor.value === '' || parseFloat(inputValor.value) <= 0)) {
+                        alert("Item 'Sob Consulta': É obrigatório informar o valor avaliado do produto.");
+                        inputValor.focus();
+                        return;
+                    }
+
+                    // Aplica as regras financeiras
+                    let novoValor = parseFloat(itemLote.dataset.valorOriginal);
+                    if (decisao === 'negado') {
+                        novoValor = 0.00;
+                        badge.textContent = "LAUDO: NEGADO";
+                        badge.style.background = "#dc3545";
+                    } else if (decisao === 'parcial') {
+                        novoValor = parseFloat(inputValor.value);
+                        badge.textContent = "LAUDO: PARCIAL";
+                        badge.style.background = "#fd7e14";
+                    } else { // aprovado
+                        if (valorOriginalZerado) {
+                            novoValor = parseFloat(inputValor.value);
+                        }
+                        badge.textContent = "LAUDO: APROVADO";
+                        badge.style.background = "#198754";
+                    }
+
+                    // Grava os dados na memória do elemento HTML
+                    itemLote.dataset.valorAtual = novoValor.toFixed(2);
+                    itemLote.dataset.statusLaudo = decisao;
+                    itemLote.dataset.textoLaudo = textarea.value.trim();
+                    
+                    // Aplica UI
+                    itemLote.querySelector('.span-valor-item').textContent = `R$ ${itemLote.dataset.valorAtual}`;
+                    badge.style.display = "inline-block";
+                    
+                    itemLote.dataset.avaliado = "true";
+                    btn.style.display = 'none';
+                    itemLote.querySelector('.msg-sucesso-laudo').style.display = 'inline-block';
+                    
+                    recalcularTotalLote();
+                    setTimeout(() => itemLote.open = false, 800);
+                }
+            }
+        });
+
+        // ENVIO DO LOTE E PREPARAÇÃO DO PAYLOAD
+        formPericia.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            let payload = [];
+            itemsLote.forEach(item => {
+                if (item.dataset.avaliado === "true") {
+                    payload.push({
+                        id_item: item.dataset.id,
+                        recebido: item.dataset.statusRecebido === "true",
+                        novo_valor: parseFloat(item.dataset.valorAtual),
+                        status_laudo: item.dataset.statusLaudo || null,
+                        texto_laudo: item.dataset.textoLaudo || ""
+                    });
+                }
+            });
+            
+            inputPayload.value = JSON.stringify(payload);
+            
+            btnSalvarLote.textContent = "Salvando Lote...";
+            btnSalvarLote.disabled = true;
+
+            const formData = new FormData(this);
+
+            fetch(this.action, {
+                method: 'POST',
+                body: formData,
+                headers: { 'Accept': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if(data.sucesso) {
+                    btnSalvarLote.textContent = "✔ Lote Salvo!";
+                    btnSalvarLote.style.backgroundColor = "#00e676";
+                    btnSalvarLote.style.color = "#000";
+                    
+                    setTimeout(() => {
+                        const origem = "{{ request.args.get('origem', '') }}";
+                        if (origem === 'monitor_sla') {
+                            window.location.href = "/monitor-sla";
+                        } else {
+                            window.location.href = "/esteira/{{ protocolo.status_id }}";
+                        }
+                    }, 2000);
+                } else {
+                    alert("Erro ao salvar: " + (data.mensagem || "Desconhecido."));
+                    btnSalvarLote.textContent = "Salvar Lote";
+                    validarEstadoDoBotaoLote();
+                }
+            })
+            .catch(error => {
+                console.error("Erro no envio:", error);
+                alert("Erro de comunicação com o servidor.");
+                btnSalvarLote.textContent = "Salvar Lote";
+                validarEstadoDoBotaoLote();
+            });
+        });
+    });
+</script>
+{% endblock %}

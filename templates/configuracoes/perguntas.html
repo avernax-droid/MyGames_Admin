@@ -1,0 +1,305 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: perguntas.html
+  DATA DE CRIAÇÃO: 15/06/2026
+  TÍTULO: Gestão de Perguntas de Conservação
+  FUNÇÃO: Interface de CRUD focada na tabela de perguntas da categoria selecionada.
+  HISTÓRICO DE ALTERAÇÕES:
+  - 15/06/2026: Criação da interface inicial em Dark Mode.
+  - 15/06/2026: Refatoração da UX: Implementação de filtro por Abas (Tabs).
+  - 15/06/2026: Bloqueio de seleção de categoria no modal para evitar erros operacionais.
+  - 15/06/2026: Nova Refatoração da UX: Substituição das Abas por Menu Vertical.
+  - 15/06/2026: Limpeza estrutural: Navegação delegada para o menu lateral global (base.html).
+  ==============================================================================
+#}
+{% extends 'base.html' %}
+
+{% block title %}Perguntas - MyGames Admin{% endblock %}
+
+{% block page_title %}
+    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <span>
+            Configurações > Perguntas de Conservação 
+            {% if categoria_ativa %}
+                <span style="color: var(--cor-destaque);"> > {{ categoria_ativa.nome }}</span>
+            {% endif %}
+        </span>
+        <a href="{{ url_for('dashboard') }}" class="btn-voltar-topo">
+            <i class="fas fa-arrow-left"></i> Voltar
+        </a>
+    </div>
+{% endblock %}
+
+{% block content %}
+<style>
+    .Acoes-topo { 
+        display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; 
+    }
+    
+    .btn-principal {
+        background-color: var(--cor-destaque); color: #121212; border: none;
+        padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer;
+        transition: 0.3s; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-principal:hover:not(:disabled) {
+        background-color: #00b359; box-shadow: 0 0 10px rgba(0, 230, 118, 0.4);
+    }
+    .btn-principal:disabled { cursor: not-allowed; opacity: 0.8; }
+    
+    .btn-voltar-topo {
+        background: transparent; border: 1px solid #444; color: var(--texto-dim);
+        padding: 8px 14px; border-radius: 6px; cursor: pointer; transition: 0.2s;
+        font-size: 13px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn-voltar-topo:hover { border-color: var(--texto-br); color: var(--texto-br); background-color: rgba(255, 255, 255, 0.05); }
+
+    .tabela-admin { width: 100%; border-collapse: collapse; text-align: left; }
+    .tabela-admin th, .tabela-admin td { padding: 14px 16px; border-bottom: var(--borda-fina); }
+    .tabela-admin th { color: var(--texto-dim); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .tabela-admin td { color: var(--texto-br); font-size: 15px; }
+    .tabela-admin tr:hover { background-color: rgba(255, 255, 255, 0.02); }
+    
+    .badge-tipo { padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; background: #333; color: #ddd; }
+
+    .btn-acao {
+        background: transparent; border: 1px solid #444; color: var(--texto-dim);
+        padding: 6px 12px; border-radius: 4px; cursor: pointer; transition: 0.2s;
+        font-size: 13px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
+    }
+    .btn-acao:hover { border-color: var(--cor-destaque); color: var(--texto-br); }
+
+    /* Modal */
+    .modal-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.75); display: flex; justify-content: center; align-items: center; z-index: 1000;
+        opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+    }
+    .modal-overlay.active { opacity: 1; pointer-events: auto; }
+    .modal-container {
+        background: var(--bg-card); border: var(--borda-fina); border-radius: 12px;
+        width: 500px; max-width: 90%; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transform: translateY(-20px);
+        transition: transform 0.3s ease;
+    }
+    .modal-overlay.active .modal-container { transform: translateY(0); }
+    .modal-header {
+        display: flex; justify-content: space-between; align-items: center;
+        border-bottom: var(--borda-fina); padding-bottom: 15px; margin-bottom: 20px;
+    }
+    .modal-header h3 { font-size: 18px; color: var(--texto-br); }
+    .modal-close { background: transparent; border: none; color: var(--texto-dim); font-size: 20px; cursor: pointer; transition: 0.2s; }
+    .modal-close:hover { color: #ff4444; }
+    
+    .form-grupo { margin-bottom: 15px; display: flex; flex-direction: column; gap: 8px; }
+    .form-grupo label { color: var(--texto-dim); font-size: 14px; }
+    .form-controle {
+        background: #151515; border: var(--borda-fina); border-radius: 6px;
+        padding: 12px; color: var(--texto-br); font-size: 14px; transition: 0.3s; width: 100%;
+    }
+    .form-controle:focus { border-color: var(--cor-destaque); outline: none; box-shadow: 0 0 5px rgba(0, 230, 118, 0.2); }
+    
+    .modal-footer {
+        display: flex; justify-content: flex-end; gap: 12px; border-top: var(--borda-fina); padding-top: 15px; margin-top: 25px;
+    }
+    .btn-cancelar {
+        background: transparent; border: 1px solid #444; color: var(--texto-dim);
+        padding: 10px 18px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s;
+    }
+    .btn-cancelar:hover { background: rgba(255,255,255,0.05); color: var(--texto-br); }
+    
+    .mensagem-vazia {
+        text-align: center; color: var(--texto-dim); padding: 50px 20px;
+        background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px dashed #333;
+    }
+</style>
+
+<div class="card-admin">
+    
+    {% if not categoria_selecionada %}
+        <div class="mensagem-vazia">
+            <i class="fas fa-hand-point-left" style="font-size: 32px; color: var(--cor-destaque); opacity: 0.7; margin-bottom: 15px; display: block;"></i>
+            <h2 style="color: var(--texto-br); font-size: 18px; margin-bottom: 10px;">Aguardando Seleção</h2>
+            <p>Por favor, expanda o menu <b>"Perguntas de Conservação"</b> na barra lateral esquerda e clique na categoria que deseja configurar.</p>
+        </div>
+    {% else %}
+        <div class="Acoes-topo">
+            <div>
+                <h2 style="color: var(--texto-br); font-size: 18px; margin-bottom: 5px;">Perguntas: {{ categoria_ativa.nome }}</h2>
+                <p style="color: var(--texto-dim); font-size: 14px;">Gerencie os critérios de avaliação técnica exigidos para esta categoria.</p>
+            </div>
+            
+            <button onclick="abrirModalForm(false)" class="btn-principal">
+                <i class="fas fa-plus"></i> Nova Pergunta
+            </button>
+        </div>
+
+        <table class="tabela-admin">
+            <thead>
+                <tr>
+                    <th style="width: 5%;">ID</th>
+                    <th style="width: 50%;">Texto da Pergunta</th>
+                    <th style="width: 20%;">Formato da Resposta</th>
+                    <th style="width: 15%;">Impacto Base R$</th>
+                    <th style="width: 10%; text-align: right;">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pergunta in lista_perguntas %}
+                <tr>
+                    <td style="color: var(--texto-dim);">{{ pergunta.id }}</td>
+                    <td style="font-weight: 500;">{{ pergunta.texto_pergunta }}</td>
+                    <td><span class="badge-tipo">{{ pergunta.tipo_resposta }}</span></td>
+                    <td>R$ {{ "%.2f"|format(pergunta.impacto_valor|default(0.0, true)) }}</td>
+                    <td style="text-align: right;">
+                        <button class="btn-acao" onclick="abrirModalForm(true, '{{ pergunta.id }}', '{{ pergunta.texto_pergunta|escape }}', '{{ pergunta.tipo_resposta }}', '{{ pergunta.impacto_valor }}')">
+                            <i class="fas fa-edit"></i> Editar
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" style="text-align: center; color: var(--texto-dim); padding: 40px;">
+                        Nenhuma pergunta cadastrada para <b>{{ categoria_ativa.nome }}</b>.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="modal-overlay" id="modalPergunta">
+            <div class="modal-container">
+                <div class="modal-header">
+                    <h3 id="modalTitulo">Nova Pergunta</h3>
+                    <button class="modal-close" onclick="fecharModalForm()">&times;</button>
+                </div>
+                <form id="formPergunta" method="POST" action="{{ url_for('salvar_pergunta') }}">
+                    <input type="hidden" id="pergunta_id" name="id" value="">
+                    
+                    <input type="hidden" name="categoria_id" value="{{ categoria_selecionada }}">
+                    
+                    <div class="form-grupo">
+                        <label>Categoria Alvo</label>
+                        <div class="form-controle" style="background: rgba(0, 230, 118, 0.05); color: var(--cor-destaque); font-weight: bold; pointer-events: none; border-color: rgba(0, 230, 118, 0.3);">
+                            {{ categoria_ativa.nome }}
+                        </div>
+                    </div>
+
+                    <div class="form-grupo">
+                        <label for="texto_pergunta">Texto da Pergunta</label>
+                        <input type="text" id="texto_pergunta" name="texto_pergunta" class="form-controle" placeholder="Ex: O console possui a caixa original?" required maxlength="255">
+                    </div>
+
+                    <div style="display: flex; gap: 15px;">
+                        <div class="form-grupo" style="flex: 1;">
+                            <label for="tipo_resposta">Tipo de Resposta</label>
+                            <select id="tipo_resposta" name="tipo_resposta" class="form-controle" required>
+                                <option value="SIM/NAO">SIM / NÃO</option>
+                                <option value="MULTIPLA_ESCOLHA">MÚLTIPLA ESCOLHA</option>
+                            </select>
+                        </div>
+
+                        <div class="form-grupo" style="flex: 1;">
+                            <label for="impacto_valor">Impacto Base (R$)</label>
+                            <input type="number" id="impacto_valor" name="impacto_valor" class="form-controle" step="0.01" placeholder="Ex: -50.00" value="0.00">
+                        </div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="button" class="btn-cancelar" onclick="fecharModalForm()">Cancelar</button>
+                        <button type="submit" class="btn-principal" id="btnSalvar">Salvar Alterações</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            // --- LÓGICA DO MODAL ---
+            const modal = document.getElementById('modalPergunta');
+            const modalTitulo = document.getElementById('modalTitulo');
+            const formPergunta = document.getElementById('formPergunta');
+            
+            const inputId = document.getElementById('pergunta_id');
+            const inputTexto = document.getElementById('texto_pergunta');
+            const inputTipo = document.getElementById('tipo_resposta');
+            const inputImpacto = document.getElementById('impacto_valor');
+            const btnSalvar = document.getElementById('btnSalvar');
+
+            function abrirModalForm(isEdicao, id = '', texto = '', tipo = 'SIM/NAO', impacto = '0.00') {
+                modal.classList.add('active');
+                
+                // Reset Visual do Botão
+                btnSalvar.innerHTML = 'Salvar Alterações';
+                btnSalvar.disabled = false;
+                btnSalvar.style.backgroundColor = ''; 
+                btnSalvar.style.color = '';
+
+                if (isEdicao) {
+                    modalTitulo.innerText = 'Editar Pergunta';
+                    inputId.value = id;
+                    inputTexto.value = texto;
+                    inputTipo.value = tipo;
+                    inputImpacto.value = impacto;
+                } else {
+                    modalTitulo.innerText = 'Nova Pergunta';
+                    // Preserva o input hidden da categoria e reseta os demais
+                    inputId.value = '';
+                    inputTexto.value = '';
+                    inputTipo.value = 'SIM/NAO';
+                    inputImpacto.value = '0.00';
+                }
+                
+                setTimeout(() => inputTexto.focus(), 100);
+            }
+
+            function fecharModalForm() {
+                modal.classList.remove('active');
+            }
+
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) fecharModalForm();
+            });
+
+            // --- SUBMISSÃO SILENCIOSA AJAX ---
+            formPergunta.addEventListener('submit', function(e) {
+                e.preventDefault(); 
+
+                const originalContent = btnSalvar.innerHTML;
+                btnSalvar.disabled = true;
+                btnSalvar.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Aguarde...';
+
+                const formData = new FormData(this);
+
+                fetch(this.action, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if(data.sucesso) {
+                        btnSalvar.innerHTML = '<i class="fas fa-check" style="font-size: 18px;"></i> OK';
+                        btnSalvar.style.backgroundColor = '#00e676';
+                        btnSalvar.style.color = '#121212';
+                        
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    } else {
+                        btnSalvar.innerHTML = originalContent;
+                        btnSalvar.disabled = false;
+                        alert(data.mensagem || 'Erro ao salvar a pergunta.');
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro:', error);
+                    btnSalvar.innerHTML = originalContent;
+                    btnSalvar.disabled = false;
+                    alert('Falha de comunicação com o servidor. Verifique o console.');
+                });
+            });
+        </script>
+    {% endif %}
+</div>
+{% endblock %}

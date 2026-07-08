@@ -1,0 +1,442 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: protocolos.html
+  DATA DE CRIAÇÃO: 30/05/2026
+  TÍTULO: Gestão de Protocolos (Recompras)
+  FUNÇÃO: Exibe a listagem de todos os pedidos de recompra gerados pelos clientes.
+  
+  HISTÓRICO DE ALTERAÇÕES:
+  - 30/05/2026: Criação da listagem inicial em Dark Mode.
+  - 01/06/2026: Inclusão da coluna Telefone, definição de widths para as colunas e ajuste de colspan.
+  - 01/06/2026: Aplicação de máscara de formatação (DDD + Número) para a coluna telefone via Jinja2.
+  - 10/06/2026: Integração da coluna Status com a nova tabela status_protocolos.
+                Aplicação de Truncamento Inteligente via CSS e Tooltip nativo
+                para proteção de layout e renderização dinâmica das cores de badge.
+  - 25/06/2026: Remoção do corte visual (ellipsis) na coluna de Protocolo para exibição completa.
+  - 25/06/2026: Inclusão de Popup (Modal) interativo de busca ao carregar a página com 
+                filtro dinâmico via JavaScript (Chaves: Protocolo, Cliente, Data).
+  - 26/06/2026: Adição do botão "X" de fechamento livre no modal e suporte à tecla ESC 
+                para melhorar a navegação do usuário.
+  - 27/06/2026: Implementação de ordenação dinâmica (Crescente/Decrescente) via JS 
+                para a coluna de "Data Entrada", com feedback visual no cabeçalho.
+  - 04/07/2026: Implementação de validação de UX no modal de busca: bloqueio condicional
+                dos botões 'Ver Todos' e 'Aplicar Filtro' com base no preenchimento do input.
+  ==============================================================================
+#}
+{% extends 'base.html' %}
+
+{% block title %}Protocolos - MyGames Admin{% endblock %}
+
+{% block page_title %}Gestão de Protocolos{% endblock %}
+
+{% block content %}
+<style>
+    /* Estilos específicos para a tabela do Backoffice */
+    .table-admin {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+        color: var(--texto-br);
+        /* Previne que a tabela estoure a largura da tela */
+        table-layout: fixed; 
+    }
+
+    .table-admin th {
+        background-color: #151515;
+        padding: 15px;
+        text-align: left;
+        font-size: 13px;
+        text-transform: uppercase;
+        color: var(--texto-dim);
+        border-bottom: 2px solid #333;
+    }
+
+    .table-admin td {
+        padding: 15px;
+        border-bottom: 1px solid #2a2a2a;
+        font-size: 14px;
+        vertical-align: middle;
+        /* Limita o conteúdo da célula para não quebrar linha */
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Regra específica para não cortar o Protocolo */
+    .td-protocolo {
+        overflow: visible !important;
+        text-overflow: clip !important;
+        font-weight: bold;
+    }
+
+    .table-admin tr:hover {
+        background-color: rgba(255, 255, 255, 0.02);
+    }
+
+    /* Novas Badges de Status Dinâmicas */
+    .badge-status { 
+        display: inline-block; 
+        padding: 6px 12px; 
+        border-radius: 4px; 
+        font-weight: bold; 
+        font-size: 11px; 
+        text-transform: uppercase; 
+        letter-spacing: 0.5px;
+        max-width: 100%;
+        white-space: nowrap; 
+        overflow: hidden; 
+        text-overflow: ellipsis;
+        vertical-align: bottom;
+        box-sizing: border-box;
+    }
+    .badge-info { background-color: #0dcaf0; color: #000; }
+    .badge-primary { background-color: #0d6efd; color: #fff; }
+    .badge-warning { background-color: #ffc107; color: #000; }
+    .badge-success { background-color: #198754; color: #fff; }
+    .badge-dark { background-color: #212529; color: #fff; border: 1px solid #444; }
+    .badge-danger { background-color: #dc3545; color: #fff; }
+    .badge-secondary { background-color: #6c757d; color: #fff; }
+
+    .btn-action {
+        background: #333;
+        color: #fff;
+        padding: 8px 12px;
+        border-radius: 6px;
+        text-decoration: none;
+        font-size: 13px;
+        transition: 0.3s;
+        border: none;
+        cursor: pointer;
+    }
+    .btn-action:hover { background: var(--cor-destaque); color: #000; }
+
+    /* Estilos do Popup de Busca (Modal) */
+    .modal-overlay {
+        position: fixed; 
+        top: 0; left: 0; 
+        width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.85); 
+        z-index: 9999;
+        display: flex; 
+        justify-content: center; 
+        align-items: center;
+        opacity: 1;
+        visibility: visible;
+        transition: opacity 0.3s ease;
+    }
+    .modal-content {
+        background: #1e1e1e; 
+        padding: 30px; 
+        border-radius: 12px;
+        width: 100%; 
+        max-width: 450px; 
+        border: 1px solid #333;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+        position: relative; /* Necessário para posicionar o botão X */
+    }
+    
+    /* Botão X para fechar modal livremente */
+    .btn-fechar-x {
+        position: absolute;
+        top: 15px;
+        right: 20px;
+        color: var(--texto-dim);
+        font-size: 20px;
+        cursor: pointer;
+        transition: color 0.3s;
+    }
+    .btn-fechar-x:hover {
+        color: #ff4444;
+    }
+
+    .hidden-modal { 
+        opacity: 0; 
+        visibility: hidden; 
+        pointer-events: none; 
+    }
+    .form-group-modal { margin-bottom: 20px; }
+    .form-group-modal label { display: block; margin-bottom: 8px; color: var(--texto-dim); font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+    .form-control-modal { width: 100%; padding: 12px 14px; background: #121212; border: 1px solid #444; border-radius: 8px; color: #fff; font-size: 15px; }
+    .form-control-modal:focus { outline: none; border-color: var(--cor-destaque); background: #252525; }
+    
+    /* Hover e efeito visual na coluna de ordenação */
+    #th-data-criacao {
+        cursor: pointer;
+        user-select: none;
+        transition: color 0.2s;
+    }
+    #th-data-criacao:hover {
+        color: var(--cor-destaque);
+    }
+</style>
+
+<div id="modalBusca" class="modal-overlay">
+    <div class="modal-content">
+        <i class="fas fa-times btn-fechar-x" id="btnFecharX" title="Fechar aba de busca"></i>
+
+        <h3 style="color: var(--cor-destaque); margin-bottom: 10px; font-size: 22px;">
+            <i class="fas fa-search"></i> Localizar Protocolos
+        </h3>
+        <p style="color: var(--texto-dim); font-size: 14px; margin-bottom: 25px;">
+            Selecione uma chave de busca e digite o termo. <br><strong>Dê &lt;Enter&gt; com o campo vazio para ver todos os registros.</strong>
+        </p>
+        
+        <div class="form-group-modal">
+            <label>Buscar por (Chave):</label>
+            <select id="chaveBusca" class="form-control-modal">
+                <option value="0">Código do Protocolo</option>
+                <option value="1">Nome do Cliente</option>
+                <option value="3">Data de Criação</option>
+            </select>
+        </div>
+        
+        <div class="form-group-modal">
+            <label>Termo da busca:</label>
+            <input type="text" id="termoBusca" class="form-control-modal" placeholder="Digite aqui ou deixe em branco para ver todos..." autocomplete="off">
+        </div>
+        
+        <div style="display: flex; gap: 10px; margin-top: 25px;">
+            <button id="btnBuscarModal" class="btn-action" style="flex: 1; background: #444; color: #fff; padding: 12px; font-weight: bold;">
+                Aplicar Filtro <i class="fas fa-check"></i>
+            </button>
+            <button id="btnFecharModal" class="btn-action" style="flex: 2; background: var(--cor-destaque); color: #000; padding: 12px; font-weight: bold;">
+                Ver Todos
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="card-admin">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h3 style="margin: 0; font-size: 18px; color: var(--texto-dim);">
+            <i class="fas fa-list"></i> Registros Encontrados
+        </h3>
+        <button id="btnReabrirBusca" class="btn-action" style="background: #222; border: 1px solid #444;">
+            <i class="fas fa-filter"></i> Refazer Busca
+        </button>
+    </div>
+
+    <table class="table-admin" id="tabelaProtocolos">
+        <thead>
+            <tr>
+                <th width="15%">Protocolo</th>
+                <th width="20%">Cliente</th>
+                <th width="15%">Telefone</th>
+                <th width="15%" id="th-data-criacao" title="Clique para ordenar por data">
+                    Data Entrada <i id="icone-sort-data" class="fas fa-sort" style="margin-left: 5px; font-size: 14px; opacity: 0.8;"></i>
+                </th>
+                <th width="10%">Valor (PIX)</th>
+                <th width="15%">Status</th>
+                <th width="10%" style="text-align: center;">Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for prot in protocolos %}
+            <tr class="linha-dado">
+                <td class="td-protocolo" title="#{{ prot.numero_protocolo }}">#{{ prot.numero_protocolo }}</td>
+                <td title="{{ prot.cliente_nome }}">{{ prot.cliente_nome }}</td>
+                <td style="color: #ccc; font-family: monospace; font-size: 15px;">
+                    {% if prot.cliente_telefone %}
+                        {% set tel = prot.cliente_telefone | string %}
+                        {% if tel | length == 11 %}
+                            ({{ tel[:2] }}) {{ tel[2:7] }}-{{ tel[7:] }}
+                        {% elif tel | length == 10 %}
+                            ({{ tel[:2] }}) {{ tel[2:6] }}-{{ tel[6:] }}
+                        {% else %}
+                            {{ tel }}
+                        {% endif %}
+                    {% else %}
+                        Não informado
+                    {% endif %}
+                </td>
+                <td>{{ prot.data_criacao.strftime('%d/%m/%Y %H:%M') if prot.data_criacao else '--' }}</td>
+                <td style="color: var(--cor-destaque);">R$ {{ "%.2f"|format(prot.valor_total_pix) }}</td>
+                
+                <td title="{{ prot.status_nome | default(prot.status) }}">
+                    <span class="badge-status badge-{{ prot.cor_badge | default('secondary') }}">
+                        {{ prot.status_nome | default(prot.status) }}
+                    </span>
+                </td>
+                
+                <td style="text-align: center;">
+                    <a href="/protocolos/{{ prot.id }}" class="btn-action"><i class="fas fa-eye"></i> Detalhes</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr id="linhaVaziaBanco">
+                <td colspan="7" style="text-align: center; padding: 30px; color: var(--texto-dim);">
+                    Nenhum protocolo encontrado no banco de dados.
+                </td>
+            </tr>
+            {% endfor %}
+            <tr id="linhaVaziaFiltro" style="display: none;">
+                <td colspan="7" style="text-align: center; padding: 30px; color: #ff4444;">
+                    Nenhum protocolo corresponde à busca realizada.
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const modal = document.getElementById('modalBusca');
+        const btnBuscar = document.getElementById('btnBuscarModal');
+        const btnFechar = document.getElementById('btnFecharModal');
+        const btnFecharX = document.getElementById('btnFecharX');
+        const btnReabrir = document.getElementById('btnReabrirBusca');
+        const inputTermo = document.getElementById('termoBusca');
+        const selectChave = document.getElementById('chaveBusca');
+        
+        // Elementos da Tabela
+        const tabelaBody = document.querySelector('#tabelaProtocolos tbody');
+        const tabelaLinhas = document.querySelectorAll('.linha-dado');
+        const linhaVaziaFiltro = document.getElementById('linhaVaziaFiltro');
+        
+        // Elementos de Ordenação
+        const thDataCriacao = document.getElementById('th-data-criacao');
+        const iconeSortData = document.getElementById('icone-sort-data');
+        let ordemDataDesc = false;
+
+        // Foca automaticamente no input quando a página carrega
+        setTimeout(() => inputTermo.focus(), 100);
+
+        // --- LÓGICA DE ORDENAÇÃO DINÂMICA DA TABELA ---
+        if (thDataCriacao && tabelaLinhas.length > 0) {
+            thDataCriacao.addEventListener('click', () => {
+                ordemDataDesc = !ordemDataDesc; // Alterna a ordem
+                
+                // Atualiza o ícone de feedback visual
+                iconeSortData.className = ordemDataDesc ? 'fas fa-sort-down' : 'fas fa-sort-up';
+                iconeSortData.style.color = 'var(--cor-destaque)';
+                iconeSortData.style.opacity = '1';
+
+                // Captura as linhas de dados atuais para o array
+                const linhasTr = Array.from(tabelaLinhas);
+
+                linhasTr.sort((a, b) => {
+                    // O índice 3 refere-se à 4ª coluna (Data) na tabela desta view
+                    const textoDataA = a.querySelectorAll('td')[3].textContent.trim();
+                    const textoDataB = b.querySelectorAll('td')[3].textContent.trim();
+                    
+                    // Função interna para transformar DD/MM/YYYY HH:MM em valor comparável (Timestamp)
+                    const converterParaTimestamp = (strData) => {
+                        if (!strData || strData === '--') return 0;
+                        const partes = strData.split(' ');
+                        if (partes.length !== 2) return 0;
+                        const [dia, mes, ano] = partes[0].split('/');
+                        const [hora, min] = partes[1].split(':');
+                        return new Date(ano, mes - 1, dia, hora, min).getTime();
+                    };
+
+                    const valA = converterParaTimestamp(textoDataA);
+                    const valB = converterParaTimestamp(textoDataB);
+
+                    return ordemDataDesc ? (valB - valA) : (valA - valB);
+                });
+
+                // Reanexa as linhas ordenadas na tabela. O insertBefore garante que o modal vazio continue no fim.
+                linhasTr.forEach(linha => {
+                    tabelaBody.insertBefore(linha, linhaVaziaFiltro);
+                });
+            });
+        }
+
+        // --- LÓGICA DO FILTRO ---
+        function executarFiltro() {
+            const termo = inputTermo.value.trim().toLowerCase();
+            const chaveIdx = parseInt(selectChave.value);
+            let encontrouAlgum = false;
+
+            tabelaLinhas.forEach(linha => {
+                const celulas = linha.querySelectorAll('td');
+                if (celulas.length > chaveIdx) {
+                    const textoCelula = celulas[chaveIdx].textContent.toLowerCase();
+                    
+                    // Se o termo estiver vazio ou contido na célula, mostra a linha
+                    if (termo === "" || textoCelula.includes(termo)) {
+                        linha.style.display = "";
+                        encontrouAlgum = true;
+                    } else {
+                        linha.style.display = "none";
+                    }
+                }
+            });
+
+            // Gerencia a mensagem de 'Nenhum resultado' do filtro
+            if (!encontrouAlgum && tabelaLinhas.length > 0) {
+                linhaVaziaFiltro.style.display = "";
+            } else if (linhaVaziaFiltro) {
+                linhaVaziaFiltro.style.display = "none";
+            }
+
+            // Oculta o modal
+            modal.classList.add('hidden-modal');
+        }
+
+        // ---------------------------------------------------------------------
+        // 1. NOVO CÓDIGO: Monitoriza a digitação para travar/destravar os botões
+        // ---------------------------------------------------------------------
+        if (inputTermo) {
+            inputTermo.addEventListener('input', function() {
+                const temTexto = this.value.trim().length > 0;
+                
+                // Botão "Ver Todos" - Desabilita se tiver texto
+                if(btnFechar) {
+                    btnFechar.disabled = temTexto;
+                    btnFechar.style.opacity = temTexto ? '0.5' : '1';
+                    btnFechar.style.cursor = temTexto ? 'not-allowed' : 'pointer';
+                }
+                
+                // Botão "Aplicar Filtro" - Habilita se tiver texto
+                if(btnBuscar) {
+                    btnBuscar.disabled = !temTexto;
+                    btnBuscar.style.opacity = !temTexto ? '0.5' : '1';
+                    btnBuscar.style.cursor = !temTexto ? 'not-allowed' : 'pointer';
+                }
+            });
+            // Dispara o evento logo ao carregar para garantir o estado inicial correto
+            inputTermo.dispatchEvent(new Event('input'));
+        }
+
+        // ---------------------------------------------------------------------
+        // 2. CÓDIGO ANTIGO (MANTIDO): Executa as ações reais ao clicar
+        // ---------------------------------------------------------------------
+        // Gatilhos de Ação
+        btnBuscar.addEventListener('click', executarFiltro);
+        
+        // Limpa tudo e exibe a lista completa
+        btnFechar.addEventListener('click', () => {
+            inputTermo.value = ""; 
+            executarFiltro();
+        });
+
+        // Apenas oculta o modal deixando a tabela como está
+        btnFecharX.addEventListener('click', () => {
+            modal.classList.add('hidden-modal');
+        });
+
+        // Fecha o modal ao apertar a tecla ESC (Melhor UX)
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && !modal.classList.contains('hidden-modal')) {
+                modal.classList.add('hidden-modal');
+            }
+        });
+
+        // Executa busca ao pressionar Enter
+        inputTermo.addEventListener('keypress', function(e) {
+            if(e.key === 'Enter') {
+                e.preventDefault();
+                executarFiltro();
+            }
+        });
+
+        // Botão na tabela para reabrir a busca
+        btnReabrir.addEventListener('click', () => {
+            modal.classList.remove('hidden-modal');
+            inputTermo.focus();
+        });
+    });
+</script>
+{% endblock %}

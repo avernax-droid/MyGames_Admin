@@ -1,0 +1,459 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: esteira.html
+  DATA DE CRIAÇÃO: 10/06/2026
+  TiTULO: Esteira de Gestão de Protocolos
+  FUNÇÂO: Página de listagem de protocolos por status, com filtro e ordenação
+  
+  HISTÓRICO DE ALTERAÇÕES:
+  - 11/06/2026: Refatoração da UI: Implementação de Acordeão para itens do lote.
+  - 12/06/2026: UX Fluxo: Substituição por link direto via url_for no botão 'Voltar'.
+  - 27/06/2026: UX UI: Inclusão do painel de Dados Complementares.
+  - 30/06/2026: UX UI/Lógica: Refatoração profunda para Perícia Granular.
+  - 02/07/2026: Refatoração Backend-Driven: Substituição do campo textual 
+                status_item pela flag booleana recebido_fisicamente para 
+                maior segurança e blindagem da máquina de estados.
+  - 03/07/2026: Implementação da Fase de Laudo Técnico: Inclusão de decisão 
+                granulada (Aprovado/Parcial/Negado) e campos de valor final.
+  - 04/07/2026: Implementação de validação de UX no modal de busca: bloqueio 
+                condicional dos botões 'Ver Todos' e 'Aplicar Filtro' com base 
+                no preenchimento do input de termo.
+  ==============================================================================
+#}
+
+{% extends 'base.html' %}
+
+{% block title %}Fila de Trabalho - MyGames Admin{% endblock %}
+
+{% block page_title %}Esteira de Gestão{% endblock %}
+
+{% block content %}
+<style>
+    /* Estilização do Seletor Dark Mode */
+    .esteira-seletor-container {
+        margin-bottom: 25px;
+        background: var(--bg-card);
+        padding: 20px;
+        border-radius: 10px;
+        border: 1px solid #333;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+
+    .esteira-seletor-container label {
+        font-size: 14px;
+        color: var(--texto-dim);
+        text-transform: uppercase;
+        font-weight: bold;
+        letter-spacing: 1px;
+        white-space: nowrap;
+    }
+
+    .select-status {
+        width: 100%;
+        max-width: 500px;
+        background-color: #151515;
+        color: var(--cor-destaque);
+        border: 1px solid #333;
+        padding: 12px 15px;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: bold;
+        cursor: pointer;
+        outline: none;
+        transition: all 0.3s ease;
+        appearance: none;
+        background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2300E676%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.4-12.8z%22%2F%3E%3C%2Fsvg%3E");
+        background-repeat: no-repeat;
+        background-position: right 15px top 50%;
+        background-size: 12px auto;
+    }
+
+    .select-status:hover, .select-status:focus {
+        border-color: var(--cor-destaque);
+        box-shadow: 0 0 10px rgba(0, 230, 118, 0.1);
+    }
+
+    .table-esteira {
+        width: 100%;
+        border-collapse: collapse;
+        color: var(--texto-br);
+    }
+
+    .table-esteira th {
+        background-color: #151515;
+        padding: 15px;
+        text-align: left;
+        font-size: 12px;
+        color: var(--texto-dim);
+        text-transform: uppercase;
+        border-bottom: 2px solid #333;
+    }
+
+    .table-esteira td {
+        padding: 15px;
+        border-bottom: 1px solid #2a2a2a;
+        font-size: 14px;
+        vertical-align: middle;
+    }
+
+    .btn-pericia {
+        background: var(--cor-destaque);
+        color: #000;
+        padding: 8px 15px;
+        border-radius: 6px;
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: bold;
+        transition: 0.3s;
+    }
+
+    .btn-pericia:hover {
+        filter: brightness(0.8);
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 50px;
+        color: var(--texto-dim);
+    }
+
+    /* Estilos do Popup de Busca (Modal) */
+    .modal-overlay {
+        position: fixed; 
+        top: 0; left: 0; 
+        width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.85); 
+        z-index: 9999;
+        display: flex; 
+        justify-content: center; 
+        align-items: center;
+        opacity: 1;
+        visibility: visible;
+        transition: opacity 0.3s ease;
+    }
+    .modal-content {
+        background: #1e1e1e; 
+        padding: 30px; 
+        border-radius: 12px;
+        width: 100%; 
+        max-width: 450px; 
+        border: 1px solid #333;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+    }
+    .hidden-modal { 
+        opacity: 0; 
+        visibility: hidden; 
+        pointer-events: none; 
+    }
+    .form-group-modal { margin-bottom: 20px; }
+    .form-group-modal label { display: block; margin-bottom: 8px; color: var(--texto-dim); font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+    .form-control-modal { width: 100%; padding: 12px 14px; background: #121212; border: 1px solid #444; border-radius: 8px; color: #fff; font-size: 15px; }
+    .form-control-modal:focus { outline: none; border-color: var(--cor-destaque); background: #252525; }
+    .btn-modal-action {
+        background: #333; color: #fff; padding: 12px; border-radius: 6px; text-decoration: none; font-size: 13px; transition: 0.3s; border: none; cursor: pointer; font-weight: bold;
+    }
+    
+    /* Hover e efeito visual na coluna de ordenação */
+    #th-data-entrada {
+        cursor: pointer;
+        user-select: none;
+        transition: color 0.2s;
+    }
+    #th-data-entrada:hover {
+        color: var(--cor-destaque);
+    }
+</style>
+
+<!-- MODAL DE BUSCA (Inicia oculto, o JS decide se exibe) -->
+<div id="modalBusca" class="modal-overlay hidden-modal">
+    <div class="modal-content">
+        <h3 style="color: var(--cor-destaque); margin-bottom: 10px; font-size: 22px;">
+            <i class="fas fa-search"></i> Localizar na Fila
+        </h3>
+        <p style="color: var(--texto-dim); font-size: 14px; margin-bottom: 25px;">
+            Filtre os registros do status atual. <br><strong>Dê &lt;Enter&gt; com o campo vazio para ver toda a fila.</strong>
+        </p>
+        
+        <div class="form-group-modal">
+            <label>Buscar por (Chave):</label>
+            <select id="chaveBusca" class="form-control-modal">
+                <option value="0">Código do Protocolo</option>
+                <option value="1">Nome do Cliente</option>
+                <option value="2">Data de Entrada</option>
+            </select>
+        </div>
+        
+        <div class="form-group-modal">
+            <label>Termo da busca:</label>
+            <input type="text" id="termoBusca" class="form-control-modal" placeholder="Digite aqui ou deixe em branco para ver todos..." autocomplete="off">
+        </div>
+        
+        <div style="display: flex; gap: 10px; margin-top: 25px; flex-direction: row-reverse;">
+            <button id="btnFecharModal" class="btn-modal-action" style="flex: 2; background: var(--cor-destaque); color: #000; border: 2px solid var(--cor-destaque);">Ver Todos</button>
+            <button id="btnBuscarModal" class="btn-modal-action" style="flex: 1; background: #252525; color: var(--texto-br); border: 1px solid #444;">Aplicar Filtro <i class="fas fa-check"></i></button>
+        </div>
+    </div>
+</div>
+
+<div class="esteira-seletor-container">
+    <label for="statusSelect"><i class="fas fa-filter"></i> Selecione o status:</label>
+    <!-- Adicionada a flag '?filtro=novo' para forçar a abertura do modal -->
+    <select id="statusSelect" class="select-status" onchange="if(this.value) window.location.href=this.value + '?filtro=novo';">
+        {% if not status_selecionado %}
+            <option value="" disabled selected>Selecione uma fase de trabalho abaixo</option>
+        {% endif %}
+        {% for s in resumo_status %}
+            <option value="{{ url_for('esteira_protocolos', status_id=s.id) }}" 
+                    {% if status_selecionado == s.id %}selected{% endif %}>
+                {{ s.nome_exibicao }} - {{ s.total }}
+            </option>
+        {% endfor %}
+    </select>
+</div>
+
+<div class="card-admin">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h3 style="font-size: 16px; text-transform: uppercase; color: var(--cor-destaque); margin: 0;">
+            {% if status_selecionado %}
+                {{ protocolos[0].status_nome if protocolos else 'Lista Vazia' }}
+            {% else %}
+                Nenhum status selecionado
+            {% endif %}
+        </h3>
+        <div style="display: flex; gap: 15px; align-items: center;">
+            <span style="font-size: 12px; color: var(--texto-dim);">
+                <i class="fas fa-list"></i> {{ protocolos | length }} protocolo(s) listado(s)
+            </span>
+            {% if status_selecionado and protocolos|length > 0 %}
+            <button id="btnReabrirBusca" class="btn-modal-action" style="padding: 8px 12px; font-size: 12px;">
+                <i class="fas fa-search"></i> Buscar na Fila
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <table class="table-esteira" id="tabelaEsteira">
+        <thead>
+            <tr>
+                <th>Protocolo</th>
+                <th>Cliente</th>
+                <th id="th-data-entrada" title="Clique para ordenar por data">
+                    Data Entrada <i id="icone-sort-data" class="fas fa-sort" style="margin-left: 5px; font-size: 14px; opacity: 0.8;"></i>
+                </th>
+                <th>Valor Ref.</th>
+                <th style="text-align: center;">Ação</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in protocolos %}
+            <tr class="linha-dado">
+                <td><strong>#{{ p.numero_protocolo }}</strong></td>
+                <td>{{ p.cliente_nome }}</td>
+                {% set data_str = p.data_criacao | string %}
+                <td>{{ data_str[8:10] }}/{{ data_str[5:7] }}/{{ data_str[0:4] }} {{ data_str[11:16] }}</td>
+                <td style="color: var(--texto-dim);">R$ {{ "%.2f"|format(p.valor_total_pix or 0) }}</td>
+                <td style="text-align: center;">
+                    <a href="/esteira/periciar/{{ p.id }}" class="btn-pericia">
+                        <i class="fas fa-search"></i> Periciar
+                    </a>
+                </td>
+            </tr>
+            {% else %}
+            <tr id="linhaVaziaBanco">
+                <td colspan="5">
+                    <div class="empty-state">
+                        <i class="fas fa-check-circle" style="font-size: 40px; margin-bottom: 15px; display: block; color: var(--cor-destaque);"></i>
+                        Parabéns! Fila limpa e sem pendências.
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            <tr id="linhaVaziaFiltro" style="display: none;">
+                <td colspan="5" style="text-align: center; padding: 30px; color: #ff4444;">
+                    Nenhum protocolo nesta fila corresponde à busca realizada.
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // Elementos do DOM (Filtro e Busca)
+        const modal = document.getElementById('modalBusca');
+        const btnBuscar = document.getElementById('btnBuscarModal');
+        const btnFechar = document.getElementById('btnFecharModal');
+        const btnReabrir = document.getElementById('btnReabrirBusca');
+        const inputTermo = document.getElementById('termoBusca');
+        const selectChave = document.getElementById('chaveBusca');
+        
+        // Elementos do DOM (Tabela e Ordenação)
+        const tabelaBody = document.querySelector('#tabelaEsteira tbody');
+        const tabelaLinhas = document.querySelectorAll('.linha-dado');
+        const linhaVaziaFiltro = document.getElementById('linhaVaziaFiltro');
+        const thDataEntrada = document.getElementById('th-data-entrada');
+        const iconeSortData = document.getElementById('icone-sort-data');
+
+        // Variáveis de Estado
+        const hasStatus = {{ 'true' if status_selecionado else 'false' }};
+        const hasProtocolos = {{ 'true' if protocolos|length > 0 else 'false' }};
+        const pathAtual = window.location.pathname;
+        const urlParams = new URLSearchParams(window.location.search);
+        const isNovoFiltro = urlParams.get('filtro') === 'novo';
+        let ordemDataDesc = false; // Controla o estado de ordenação (Crescente/Decrescente)
+
+        // --- LÓGICA DE ORDENAÇÃO DINÂMICA DA TABELA ---
+        if (thDataEntrada && hasProtocolos) {
+            thDataEntrada.addEventListener('click', () => {
+                ordemDataDesc = !ordemDataDesc; // Alterna a ordem
+                
+                // Atualiza o ícone de feedback visual
+                iconeSortData.className = ordemDataDesc ? 'fas fa-sort-down' : 'fas fa-sort-up';
+                iconeSortData.style.color = 'var(--cor-destaque)';
+                iconeSortData.style.opacity = '1';
+
+                // Captura as linhas de dados atuais para o array
+                const linhasTr = Array.from(tabelaLinhas);
+
+                linhasTr.sort((a, b) => {
+                    const textoDataA = a.querySelectorAll('td')[2].textContent.trim();
+                    const textoDataB = b.querySelectorAll('td')[2].textContent.trim();
+                    
+                    // Função interna para transformar DD/MM/YYYY HH:MM em valor comparável (Timestamp)
+                    const converterParaTimestamp = (strData) => {
+                        if (!strData) return 0;
+                        const partes = strData.split(' ');
+                        if (partes.length !== 2) return 0;
+                        const [dia, mes, ano] = partes[0].split('/');
+                        const [hora, min] = partes[1].split(':');
+                        return new Date(ano, mes - 1, dia, hora, min).getTime();
+                    };
+
+                    const valA = converterParaTimestamp(textoDataA);
+                    const valB = converterParaTimestamp(textoDataB);
+
+                    return ordemDataDesc ? (valB - valA) : (valA - valB);
+                });
+
+                // Reanexa as linhas ordenadas na tabela. O insertBefore garante que o modal vazio continue no fim.
+                linhasTr.forEach(linha => {
+                    tabelaBody.insertBefore(linha, linhaVaziaFiltro);
+                });
+            });
+        }
+
+        // --- LÓGICA DE FILTRO DA TABELA ---
+        function executarFiltro() {
+            const termo = inputTermo.value.trim().toLowerCase();
+            const chaveIdx = parseInt(selectChave.value);
+            let encontrouAlgum = false;
+
+            // Salva estado na sessão para lembrar em caso de clique no 'Voltar'
+            sessionStorage.setItem('esteira_termo', inputTermo.value);
+            sessionStorage.setItem('esteira_chave', selectChave.value);
+            sessionStorage.setItem('esteira_path', pathAtual);
+
+            tabelaLinhas.forEach(linha => {
+                const celulas = linha.querySelectorAll('td');
+                if (celulas.length > chaveIdx) {
+                    const textoCelula = celulas[chaveIdx].textContent.toLowerCase();
+                    if (termo === "" || textoCelula.includes(termo)) {
+                        linha.style.display = "";
+                        encontrouAlgum = true;
+                    } else {
+                        linha.style.display = "none";
+                    }
+                }
+            });
+
+            if (!encontrouAlgum && tabelaLinhas.length > 0) {
+                linhaVaziaFiltro.style.display = "";
+            } else if (linhaVaziaFiltro) {
+                linhaVaziaFiltro.style.display = "none";
+            }
+
+            modal.classList.add('hidden-modal');
+        }
+
+        // --- LÓGICA DE ABERTURA DO MODAL E PERSISTÊNCIA ---
+        if (hasStatus && hasProtocolos) {
+            if (isNovoFiltro) {
+                // Usuário selecionou ativamente no dropdown: Limpa memória e abre modal
+                sessionStorage.removeItem('esteira_termo');
+                sessionStorage.setItem('esteira_path', pathAtual);
+                
+                modal.classList.remove('hidden-modal');
+                setTimeout(() => inputTermo.focus(), 100);
+                
+                // Limpa o '?filtro=novo' da URL sem recarregar a página (Evita modal no F5)
+                window.history.replaceState(null, '', pathAtual);
+            } else {
+                // É um retorno pelo botão "Voltar" ou atualização F5
+                const savedPath = sessionStorage.getItem('esteira_path');
+                if (savedPath === pathAtual) {
+                    // Tem memória salva! Restaura os dados e filtra direto (não abre modal)
+                    inputTermo.value = sessionStorage.getItem('esteira_termo') || "";
+                    selectChave.value = sessionStorage.getItem('esteira_chave') || "0";
+                    executarFiltro();
+                } else {
+                    // Acesso direto pela URL sem parâmetro. Abre modal.
+                    modal.classList.remove('hidden-modal');
+                    setTimeout(() => inputTermo.focus(), 100);
+                }
+            }
+        }
+
+// --- LISTENERS DOS BOTÕES DE BUSCA ---
+
+        // 1. NOVO CÓDIGO: Monitora a digitação para travar/destravar os botões
+        if (inputTermo) {
+            inputTermo.addEventListener('input', function() {
+                const temTexto = this.value.trim().length > 0;
+                
+                // Botão "Ver Todos" - Desabilita se tiver texto
+                if(btnFechar) {
+                    btnFechar.disabled = temTexto;
+                    btnFechar.style.opacity = temTexto ? '0.5' : '1';
+                    btnFechar.style.cursor = temTexto ? 'not-allowed' : 'pointer';
+                }
+                
+                // Botão "Aplicar Filtro" - Habilita se tiver texto
+                if(btnBuscar) {
+                    btnBuscar.disabled = !temTexto;
+                    btnBuscar.style.opacity = !temTexto ? '0.5' : '1';
+                    btnBuscar.style.cursor = !temTexto ? 'not-allowed' : 'pointer';
+                }
+            });
+            // Dispara o evento logo ao carregar para garantir o estado inicial correto
+            inputTermo.dispatchEvent(new Event('input'));
+        }
+
+        // 2. CÓDIGO ANTIGO (MANTIDO): Executa a ação quando clica nos botões
+        if (btnBuscar) btnBuscar.addEventListener('click', executarFiltro);
+        
+        if (btnFechar) btnFechar.addEventListener('click', () => {
+            inputTermo.value = ""; 
+            executarFiltro();
+        });
+
+        if (inputTermo) {
+            inputTermo.addEventListener('keypress', function(e) {
+                if(e.key === 'Enter') {
+                    e.preventDefault();
+                    executarFiltro();
+                }
+            });
+        }
+
+        if (btnReabrir) {
+            btnReabrir.addEventListener('click', () => {
+                modal.classList.remove('hidden-modal');
+                inputTermo.focus();
+            });
+        }
+    });
+</script>
+{% endblock %}

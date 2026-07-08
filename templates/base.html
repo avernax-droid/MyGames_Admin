@@ -1,0 +1,290 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: base.html
+  DATA DE CRIAÇÃO: 30/05/2026
+  TÍTULO: Template Base do Painel Administrativo
+  FUNÇÃO: Template mestre, layout global e barra de navegação principal (Sidebar)
+  HISTÓRICO DE ALTERAÇÕES:
+  - 30/05/2026: Criação do layout inicial com Sidebar fixa em Dark Mode.
+  - 15/06/2026: Implementação de acordeão de 3º nível para o menu de Perguntas de Conservação na Sidebar.
+  - 15/06/2026: Refinamento visual: Adição de destaque discreto (pill shape) nas subcategorias ativas.
+  - 15/06/2026: Ajuste de UX: Ordenação das categorias por ID e redução da largura do destaque (fit-content).
+  - 15/06/2026: Correção do menu "Opções de Estado" para expandir subcategorias em 3º nível diretamente na Sidebar e adição de scripts correspondentes.
+  - 15/06/2026: Inclusão do link "Dados da Empresa" no submenu de Configurações e atualização da validação de rotas ativas.
+  - 05/07/2026: Inclusão do link para a nova tela de Monitor de SLA na Sidebar principal.
+  ==============================================================================
+#}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Admin - MyGames{% endblock %}</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg-fundo: #121212;
+            --bg-sidebar: #1a1a1a;
+            --bg-card: #1e1e1e;
+            --cor-destaque: #00e676;
+            --texto-br: #ffffff;
+            --texto-dim: #aaaaaa;
+            --borda-fina: 1px solid #333;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+
+        body { display: flex; height: 100vh; background-color: var(--bg-fundo); color: var(--texto-br); overflow: hidden; }
+
+        /* --- SIDEBAR --- */
+        .sidebar { width: 260px; background-color: var(--bg-sidebar); border-right: var(--borda-fina); display: flex; flex-direction: column; justify-content: space-between; }
+        .sidebar-header { padding: 25px 20px; border-bottom: var(--borda-fina); text-align: center; }
+        .sidebar-header h2 { color: var(--texto-br); font-size: 22px; letter-spacing: 1px; }
+        .sidebar-header h2 span { color: var(--cor-destaque); }
+        .sidebar-menu { flex: 1; padding: 20px 0; overflow-y: auto; }
+
+        .menu-item { display: flex; align-items: center; padding: 15px 25px; color: var(--texto-dim); text-decoration: none; font-size: 15px; font-weight: 500; transition: 0.3s; border-left: 3px solid transparent; }
+        .menu-item i { width: 25px; font-size: 18px; }
+        .menu-item:hover { background-color: rgba(255, 255, 255, 0.05); color: var(--texto-br); }
+        .menu-item.active { background-color: rgba(0, 230, 118, 0.1); color: var(--cor-destaque); border-left-color: var(--cor-destaque); }
+
+        /* --- SUBMENU CONFIGURAÇÕES --- */
+        .has-submenu { 
+            cursor: pointer; justify-content: space-between; background-color: rgba(255, 255, 255, 0.02); 
+            border-top: 1px solid #222; border-bottom: 1px solid #222; border-left: 3px solid #555; margin-top: 5px;
+        }
+        .has-submenu:hover { background-color: rgba(255, 255, 255, 0.06); border-left-color: #888; }
+        .has-submenu.active { border-left-color: var(--cor-destaque); background-color: rgba(0, 230, 118, 0.05); border-bottom: none; }
+        
+        .submenu { display: none; flex-direction: column; background: #111111; box-shadow: inset 0 3px 5px rgba(0,0,0,0.2); border-bottom: 1px solid #222; }
+        .submenu.open { display: flex; }
+        .submenu-item { padding: 12px 25px 12px 55px; color: var(--texto-dim); text-decoration: none; font-size: 14px; transition: 0.3s; border-left: 3px solid transparent; }
+        .submenu-item:hover { color: var(--texto-br); background: rgba(255, 255, 255, 0.02); }
+        .submenu-item.active { color: var(--cor-destaque); font-weight: 600; border-left-color: var(--cor-destaque); background: rgba(0, 230, 118, 0.03); }
+        .menu-seta { font-size: 14px !important; width: auto !important; transition: transform 0.3s ease; }
+        .menu-seta.rotate { transform: rotate(180deg); }
+
+        /* --- 3º NÍVEL: SUB-SUBMENU CATEGORIAS --- */
+        .sub-submenu { 
+            display: none; 
+            flex-direction: column; 
+            align-items: flex-start; 
+            background: #0d0d0d; 
+            border-bottom: 1px solid #222; 
+            padding: 10px 0;
+        }
+        .sub-submenu.open { display: flex; }
+        .sub-submenu-item { 
+            margin: 4px 0 4px 45px; 
+            padding: 6px 14px; color: #888; text-decoration: none; font-size: 13px; transition: 0.3s; border-radius: 20px;
+            display: inline-flex; align-items: center; border: 1px solid transparent;
+        }
+        .sub-submenu-item i { margin-right: 8px; font-size: 10px; opacity: 0.7; }
+        .sub-submenu-item:hover { color: var(--texto-br); background: rgba(255, 255, 255, 0.04); }
+        .sub-submenu-item.active { 
+            color: var(--cor-destaque); font-weight: 600; 
+            background: rgba(0, 230, 118, 0.08); 
+            border: 1px solid rgba(0, 230, 118, 0.2); 
+        }
+        .sub-submenu-item.active i { opacity: 1; }
+        .menu-seta-sub { font-size: 12px !important; transition: transform 0.3s ease; color: #666; }
+        .menu-seta-sub.rotate { transform: rotate(180deg); }
+
+        /* --- FOOTER/USER --- */
+        .sidebar-footer { padding: 20px; border-top: var(--borda-fina); background: #151515; }
+        .user-info { display: flex; align-items: center; gap: 12px; margin-bottom: 15px; }
+        .user-info i { font-size: 32px; color: #555; }
+        .user-details { display: flex; flex-direction: column; }
+        .user-name { font-size: 14px; font-weight: bold; color: var(--texto-br); }
+        .user-role { font-size: 12px; color: var(--cor-destaque); }
+        .btn-logout { display: block; text-align: center; padding: 10px; background: transparent; border: 1px solid #ff4444; color: #ff4444; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: bold; transition: 0.3s; }
+        .btn-logout:hover { background: #ff4444; color: #fff; }
+
+        /* --- MAIN --- */
+        .main-container { flex: 1; display: flex; flex-direction: column; overflow-y: auto; }
+        .topbar { padding: 25px 35px; background-color: var(--bg-fundo); border-bottom: var(--borda-fina); }
+        .topbar h1 { font-size: 24px; color: var(--texto-br); font-weight: 600; }
+        .content-area { padding: 35px; flex: 1; }
+        .card-admin { background: var(--bg-card); border: var(--borda-fina); border-radius: 12px; padding: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+        .flash-global { background: rgba(255, 68, 68, 0.1); border: 1px solid #ff4444; color: #ff4444; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <h2>MyGames <span>Admin</span></h2>
+        </div>
+        
+        <nav class="sidebar-menu">
+            {% set nivel = session.get('admin_nivel') %}
+
+            <a href="{{ url_for('dashboard') }}" class="menu-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
+                <i class="fas fa-chart-line"></i> Dashboard
+            </a>
+            
+            <a href="{{ url_for('listar_protocolos') }}" class="menu-item {% if request.endpoint == 'listar_protocolos' %}active{% endif %}">
+                <i class="fas fa-file-invoice-dollar"></i> Protocolos
+            </a>
+
+            <a href="{{ url_for('esteira_protocolos') }}" class="menu-item {% if request.endpoint == 'esteira_protocolos' %}active{% endif %}">
+                <i class="fas fa-tasks"></i> Fila de Trabalho
+            </a>
+
+            <a href="{{ url_for('monitor_sla') }}" class="menu-item {% if request.endpoint == 'monitor_sla' %}active{% endif %}">
+                <i class="fas fa-clock"></i> Monitor de SLA
+            </a>
+
+            <a href="{{ url_for('listar_catalogo') }}" class="menu-item {% if request.endpoint == 'listar_catalogo' %}active{% endif %}">
+                <i class="fas fa-gamepad"></i> Catálogo
+            </a>
+            
+            {% if nivel == 'Administrador' %}
+            {% set config_endpoints = ['listar_regioes', 'listar_categorias', 'listar_canais', 'listar_status', 'listar_usuarios', 'listar_perguntas', 'listar_opcoes_estado', 'dados_empresa'] %}
+            
+            <div class="menu-item has-submenu {% if request.endpoint in config_endpoints %}active{% endif %}" id="toggle-config">
+                <div style="display: flex; align-items: center;">
+                    <i class="fas fa-cogs"></i> Configurações
+                </div>
+                <i class="fas fa-chevron-down menu-seta" id="seta-config"></i>
+            </div>
+            
+            <div class="submenu {% if request.endpoint in config_endpoints %}open{% endif %}" id="submenu-config">
+                
+                <a href="{{ url_for('dados_empresa') }}" class="submenu-item {% if request.endpoint == 'dados_empresa' %}active{% endif %}">
+                    Dados da Empresa
+                </a>
+                
+                <a href="{{ url_for('listar_categorias') }}" class="submenu-item {% if request.endpoint == 'listar_categorias' %}active{% endif %}">
+                    Categorias
+                </a>
+                <a href="{{ url_for('listar_canais') }}" class="submenu-item {% if request.endpoint == 'listar_canais' %}active{% endif %}">
+                    Canais de Aquisição
+                </a>
+                
+                <div class="submenu-item has-sub-submenu {% if request.endpoint == 'listar_perguntas' %}active{% endif %}" id="toggle-perguntas" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+                    <span>Perguntas de Conservação</span>
+                    <i class="fas fa-chevron-down menu-seta-sub" id="seta-perguntas"></i>
+                </div>
+                <div class="sub-submenu {% if request.endpoint == 'listar_perguntas' %}open{% endif %}" id="submenu-perguntas">
+                    {% for cat in lista_categorias_global | sort(attribute='id') %}
+                        {% set cat_is_active = (request.endpoint == 'listar_perguntas' and request.path.endswith('/' ~ cat.id|string)) %}
+                        <a href="{{ url_for('listar_perguntas', categoria_id=cat.id) }}" class="sub-submenu-item {% if cat_is_active %}active{% endif %}">
+                            <i class="fas fa-layer-group"></i> {{ cat.nome }}
+                        </a>
+                    {% else %}
+                        <span class="sub-submenu-item" style="color: #555; font-style: italic;">Sem categorias ativas</span>
+                    {% endfor %}
+                </div>
+
+                <div class="submenu-item has-sub-submenu {% if request.endpoint == 'listar_opcoes_estado' %}active{% endif %}" id="toggle-opcoes" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+                    <span>Opções de Estado</span>
+                    <i class="fas fa-chevron-down menu-seta-sub" id="seta-opcoes"></i>
+                </div>
+                <div class="sub-submenu {% if request.endpoint == 'listar_opcoes_estado' %}open{% endif %}" id="submenu-opcoes">
+                    {% for cat in lista_categorias_global | sort(attribute='id') %}
+                        {% set cat_is_active = (request.endpoint == 'listar_opcoes_estado' and request.path.endswith('/' ~ cat.id|string)) %}
+                        <a href="{{ url_for('listar_opcoes_estado', categoria_id=cat.id) }}" class="sub-submenu-item {% if cat_is_active %}active{% endif %}">
+                            <i class="fas fa-layer-group"></i> {{ cat.nome }}
+                        </a>
+                    {% else %}
+                        <span class="sub-submenu-item" style="color: #555; font-style: italic;">Sem categorias ativas</span>
+                    {% endfor %}
+                </div>
+
+                <a href="{{ url_for('listar_status') }}" class="submenu-item {% if request.endpoint == 'listar_status' %}active{% endif %}">
+                    Status Protocolos
+                </a>
+                <a href="{{ url_for('listar_regioes') }}" class="submenu-item {% if request.endpoint == 'listar_regioes' %}active{% endif %}">
+                    Regiões de Atendimento
+                </a>
+                <a href="{{ url_for('listar_usuarios') }}" class="submenu-item {% if request.endpoint == 'listar_usuarios' %}active{% endif %}">
+                    Usuários Admin
+                </a>
+            </div>
+            {% endif %}
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="user-info">
+                <i class="fas fa-user-circle"></i>
+                <div class="user-details">
+                    <span class="user-name">{{ session.get('admin_nome', 'Usuário') }}</span>
+                    <span class="user-role">{{ session.get('admin_nivel', 'Nível Indefinido') }}</span>
+                </div>
+            </div>
+            <a href="{{ url_for('logout') }}" class="btn-logout"><i class="fas fa-sign-out-alt"></i> Sair do Sistema</a>
+        </div>
+    </aside>
+
+    <main class="main-container">
+        <header class="topbar">
+            <h1>{% block page_title %}Visão Geral{% endblock %}</h1>
+        </header>
+
+        <div class="content-area">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash-global">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Lógica de expansão do submenu principal de Configurações
+            const toggleConfig = document.getElementById('toggle-config');
+            const submenuConfig = document.getElementById('submenu-config');
+            const setaConfig = document.getElementById('seta-config');
+            
+            if(toggleConfig && submenuConfig) {
+                if(submenuConfig.classList.contains('open')) {
+                    setaConfig.classList.add('rotate');
+                }
+                toggleConfig.addEventListener('click', function() {
+                    submenuConfig.classList.toggle('open');
+                    setaConfig.classList.toggle('rotate');
+                });
+            }
+
+            // Lógica de expansão do sub-submenu de Perguntas de Conservação
+            const togglePerguntas = document.getElementById('toggle-perguntas');
+            const submenuPerguntas = document.getElementById('submenu-perguntas');
+            const setaPerguntas = document.getElementById('seta-perguntas');
+
+            if(togglePerguntas && submenuPerguntas) {
+                if(submenuPerguntas.classList.contains('open')) {
+                    setaPerguntas.classList.add('rotate');
+                }
+                togglePerguntas.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    submenuPerguntas.classList.toggle('open');
+                    setaPerguntas.classList.toggle('rotate');
+                });
+            }
+
+            // Lógica de expansão do sub-submenu de Opções de Estado
+            const toggleOpcoes = document.getElementById('toggle-opcoes');
+            const submenuOpcoes = document.getElementById('submenu-opcoes');
+            const setaOpcoes = document.getElementById('seta-opcoes');
+
+            if(toggleOpcoes && submenuOpcoes) {
+                if(submenuOpcoes.classList.contains('open')) {
+                    setaOpcoes.classList.add('rotate');
+                }
+                toggleOpcoes.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    submenuOpcoes.classList.toggle('open');
+                    setaOpcoes.classList.toggle('rotate');
+                });
+            }
+        });
+    </script>
+</body>
+</html>

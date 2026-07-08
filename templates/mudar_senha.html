@@ -1,0 +1,225 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: mudar_senha.html
+  DATA DE CRIAÇÃO: 25/06/2026
+  TÍTULO: Tela de Alteração Obrigatória de Senha
+  FUNÇÃO: Interface de segurança que força o usuário a trocar a senha provisória
+          gerada pelo sistema antes de acessar qualquer módulo do backoffice.
+  HISTÓRICO DE ALTERAÇÕES:
+  - 04/07/2026: Adição de ícones para alternar visibilidade de senha (olhinho).
+  ==============================================================================
+#}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Troca de Senha Obrigatória - MyGames</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg-fundo: #121212;
+            --cor-destaque: #00e676;
+            --texto-br: #ffffff;
+            --texto-dim: #aaaaaa;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        body { 
+            background-color: var(--bg-fundo); 
+            color: var(--texto-br); 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            padding: 20px;
+        }
+
+        .login-wrapper {
+            background: #1e1e1e;
+            padding: 40px;
+            border-radius: 12px;
+            border: 1px solid #333;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .form-header-title {
+            text-align: center;
+            margin-bottom: 5px;
+            color: #ff9800;
+            font-size: 24px;
+        }
+
+        .form-header-subtitle {
+            text-align: center;
+            color: var(--texto-dim);
+            font-size: 14px;
+            margin-bottom: 25px;
+            line-height: 1.4;
+        }
+
+        .form-group { margin-bottom: 18px; position: relative; }
+        
+        .form-group label { 
+            display: block; 
+            margin-bottom: 8px; 
+            color: var(--texto-dim); 
+            font-size: 13px; 
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .form-control { 
+            width: 100%; 
+            padding: 12px 40px 12px 14px; 
+            background: #121212; 
+            border: 1px solid #444; 
+            border-radius: 8px; 
+            color: #fff; 
+            font-size: 15px; 
+            transition: 0.3s; 
+        }
+        
+        .form-control:focus { 
+            outline: none; 
+            border-color: #ff9800; 
+            background: #252525;
+            box-shadow: 0 0 5px rgba(255, 152, 0, 0.2);
+        }
+
+        .toggle-password {
+            position: absolute;
+            right: 15px;
+            top: 38px;
+            color: var(--texto-dim);
+            cursor: pointer;
+            z-index: 10;
+        }
+        .toggle-password:hover { color: var(--texto-br); }
+
+        .btn-submit { 
+            width: 100%; 
+            padding: 14px; 
+            background: #ff9800; 
+            color: #000; 
+            border: none; 
+            border-radius: 8px; 
+            font-size: 15px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            transition: 0.3s; 
+            margin-top: 10px; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-submit:hover { background-color: #e68a00; box-shadow: 0 0 10px rgba(255, 152, 0, 0.3); }
+
+        .flash-msg { 
+            padding: 12px; 
+            border-radius: 8px; 
+            margin-bottom: 20px; 
+            text-align: center; 
+            font-size: 13px; 
+            font-weight: bold;
+            border: 1px dashed;
+        }
+        .flash-error { background: rgba(255, 68, 68, 0.1); border-color: #ff4444; color: #ff4444; }
+        .flash-success { background: rgba(0, 230, 118, 0.1); border-color: var(--cor-destaque); color: var(--cor-destaque); }
+        .flash-warning { background: rgba(255, 152, 0, 0.1); border-color: #ff9800; color: #ff9800; }
+
+        .logout-link {
+            display: block;
+            text-align: center;
+            margin-top: 20px;
+            color: var(--texto-dim);
+            text-decoration: none;
+            font-size: 13px;
+            transition: 0.2s;
+        }
+        .logout-link:hover { color: #ff4444; text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+    <div class="login-wrapper">
+
+        <h2 class="form-header-title"><i class="fas fa-lock"></i> Ação Necessária</h2>
+        <p class="form-header-subtitle">Por motivos de segurança, você precisa definir uma nova senha definitiva para acessar o sistema.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-msg 
+                        {% if category == 'success' %}flash-success
+                        {% elif category == 'error' %}flash-error
+                        {% else %}flash-warning{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form action="{{ url_for('mudar_senha') }}" method="POST" id="form-mudar-senha">
+            
+            <div class="form-group">
+                <label>Senha Provisória (Atual)</label>
+                <input type="password" name="senha_atual" id="senha_atual" class="form-control" placeholder="Digite a senha que chegou no e-mail" required autofocus>
+                <i class="fas fa-eye toggle-password" onclick="togglePassword('senha_atual')"></i>
+            </div>
+
+            <div class="form-group">
+                <label>Nova Senha Definitiva</label>
+                <input type="password" id="nova_senha" name="nova_senha" class="form-control" placeholder="Mínimo de 6 caracteres" required>
+                <i class="fas fa-eye toggle-password" onclick="togglePassword('nova_senha')"></i>
+            </div>
+
+            <div class="form-group">
+                <label>Confirme a Nova Senha</label>
+                <input type="password" id="confirmar_senha" name="confirmar_senha" class="form-control" placeholder="Repita a nova senha" required>
+                <i class="fas fa-eye toggle-password" onclick="togglePassword('confirmar_senha')"></i>
+            </div>
+
+            <button type="submit" class="btn-submit"><i class="fas fa-save"></i> SALVAR E ACESSAR</button>
+            
+        </form>
+
+        <a href="{{ url_for('logout') }}" class="logout-link"><i class="fas fa-sign-out-alt"></i> Cancelar e Sair</a>
+
+    </div>
+
+    <script>
+        function togglePassword(inputId) {
+            const input = document.getElementById(inputId);
+            const icon = input.nextElementSibling;
+            if (input.type === "password") {
+                input.type = "text";
+                icon.classList.replace("fa-eye", "fa-eye-slash");
+            } else {
+                input.type = "password";
+                icon.classList.replace("fa-eye-slash", "fa-eye");
+            }
+        }
+
+        document.getElementById('form-mudar-senha').addEventListener('submit', function(e) {
+            const senha = document.getElementById('nova_senha').value;
+            const confirmacao = document.getElementById('confirmar_senha').value;
+            
+            if (senha !== confirmacao) {
+                e.preventDefault();
+                alert('A nova senha e a confirmação não coincidem. Verifique os dados digitados.');
+                document.getElementById('confirmar_senha').focus();
+            } else if (senha.length < 6) {
+                e.preventDefault();
+                alert('Por segurança, a nova senha deve ter no mínimo 6 caracteres.');
+                document.getElementById('nova_senha').focus();
+            }
+        });
+    </script>
+</body>
+</html>

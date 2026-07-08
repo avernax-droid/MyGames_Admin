@@ -1,0 +1,385 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: canais.html
+  DATA DE CRIAÇÃO: 15/06/2026
+  TÍTULO: Gestão de Canais de Aquisição
+  FUNÇÃO: Interface de CRUD (Listagem, Inserção e Edição) de Canais de Aquisição
+  HISTÓRICO DE ALTERAÇÕES:
+  - 15/06/2026: Criação da interface em Dark Mode com suporte a Modal dinâmico e botão Voltar.
+  - 15/06/2026: Implementação de salvamento via AJAX com feedback visual no botão.
+  ==============================================================================
+#}
+{% extends 'base.html' %}
+
+{% block title %}Canais de Aquisição - MyGames Admin{% endblock %}
+
+{% block page_title %}
+    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <span>Configurações > Canais de Aquisição</span>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <a href="{{ url_for('dashboard') }}" class="btn-voltar">
+                Voltar
+            </a>
+            <button onclick="abrirModalForm(false)" class="btn-principal">
+                <i class="fas fa-plus"></i> Novo Canal
+            </button>
+        </div>
+    </div>
+{% endblock %}
+
+{% block content %}
+<style>
+    /* Estilos específicos para a listagem e modais de tabelas de apoio */
+    .Acoes-topo {
+        margin-bottom: 25px;
+    }
+    
+    .btn-principal {
+        background-color: var(--cor-destaque);
+        color: #121212;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: 0.3s;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .btn-principal:hover:not(:disabled) {
+        background-color: #00b359;
+        box-shadow: 0 0 10px rgba(0, 230, 118, 0.4);
+    }
+    .btn-principal:disabled {
+        cursor: not-allowed;
+        opacity: 0.8;
+    }
+    
+    .btn-voltar {
+        background: transparent;
+        border: 1px solid #444;
+        color: var(--texto-dim);
+        padding: 9px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: 0.2s;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        width: max-content;
+    }
+    .btn-voltar:hover {
+        border-color: var(--texto-br);
+        color: var(--texto-br);
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    .tabela-admin {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+        text-align: left;
+    }
+    .tabela-admin th, .tabela-admin td {
+        padding: 14px 16px;
+        border-bottom: var(--borda-fina);
+    }
+    .tabela-admin th {
+        color: var(--texto-dim);
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .tabela-admin td {
+        color: var(--texto-br);
+        font-size: 15px;
+    }
+    .tabela-admin tr:hover {
+        background-color: rgba(255, 255, 255, 0.02);
+    }
+    .badge-status {
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    .badge-ativo { background: rgba(0, 230, 118, 0.15); color: var(--cor-destaque); }
+    .badge-inativo { background: rgba(255, 68, 68, 0.15); color: #ff4444; }
+    
+    .btn-acao {
+        background: transparent;
+        border: 1px solid #444;
+        color: var(--texto-dim);
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: 0.2s;
+        font-size: 13px;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .btn-acao:hover {
+        border-color: var(--cor-destaque);
+        color: var(--texto-br);
+    }
+
+    /* --- ESTILIZAÇÃO DO MODAL --- */
+    .modal-overlay {
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.75);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+        opacity: 0; pointer-events: none;
+        transition: opacity 0.3s ease;
+    }
+    .modal-overlay.active {
+        opacity: 1; pointer-events: auto;
+    }
+    .modal-container {
+        background: var(--bg-card);
+        border: var(--borda-fina);
+        border-radius: 12px;
+        width: 450px;
+        max-width: 90%;
+        padding: 25px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        transform: translateY(-20px);
+        transition: transform 0.3s ease;
+    }
+    .modal-overlay.active .modal-container {
+        transform: translateY(0);
+    }
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: var(--borda-fina);
+        padding-bottom: 15px;
+        margin-bottom: 20px;
+    }
+    .modal-header h3 { font-size: 18px; color: var(--texto-br); }
+    .modal-close {
+        background: transparent; border: none; color: var(--texto-dim);
+        font-size: 20px; cursor: pointer; transition: 0.2s;
+    }
+    .modal-close:hover { color: #ff4444; }
+    
+    .form-grupo {
+        margin-bottom: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .form-grupo label { color: var(--texto-dim); font-size: 14px; }
+    .form-controle {
+        background: #151515;
+        border: var(--borda-fina);
+        border-radius: 6px;
+        padding: 12px;
+        color: var(--texto-br);
+        font-size: 15px;
+        transition: 0.3s;
+    }
+    .form-controle:focus {
+        border-color: var(--cor-destaque);
+        outline: none;
+        box-shadow: 0 0 5px rgba(0, 230, 118, 0.2);
+    }
+    .form-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        cursor: pointer;
+        color: var(--texto-br);
+        font-size: 15px;
+        margin-top: 5px;
+    }
+    .form-checkbox input {
+        accent-color: var(--cor-destaque);
+        width: 18px; height: 18px;
+    }
+    .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        border-top: var(--borda-fina);
+        padding-top: 15px;
+        margin-top: 25px;
+    }
+    .btn-cancelar {
+        background: transparent; border: 1px solid #444; color: var(--texto-dim);
+        padding: 10px 18px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s;
+    }
+    .btn-cancelar:hover { background: rgba(255,255,255,0.05); color: var(--texto-br); }
+</style>
+
+<div class="card-admin">
+    <div class="Acoes-topo">
+        <p style="color: var(--texto-dim); font-size: 15px;">Gerencie as opções de canais de aquisição (origem do contato) apresentadas aos clientes.</p>
+    </div>
+
+    <table class="tabela-admin">
+        <thead>
+            <tr>
+                <th style="width: 10%;">ID</th>
+                <th style="width: 60%;">Nome do Canal</th>
+                <th style="width: 15%;">Status</th>
+                <th style="width: 15%; text-align: right;">Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for canal in lista_canais %}
+            <tr>
+                <td>{{ canal.id }}</td>
+                <td style="font-weight: 500;">{{ canal.nome }}</td>
+                <td>
+                    {% if canal.ativo %}
+                    <span class="badge-status badge-ativo">Ativo</span>
+                    {% else %}
+                    <span class="badge-status badge-inativo">Inativo</span>
+                    {% endif %}
+                </td>
+                <td style="text-align: right;">
+                    <button class="btn-acao" onclick="abrirModalForm(true, '{{ canal.id }}', '{{ canal.nome }}', '{{ canal.ativo }}')">
+                        <i class="fas fa-edit"></i> Editar
+                    </button>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="4" style="text-align: center; color: var(--texto-dim); padding: 30px;">
+                    Nenhum canal de aquisição encontrado no banco de dados.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="modal-overlay" id="modalCanal">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 id="modalTitulo">Novo Canal</h3>
+            <button class="modal-close" onclick="fecharModalForm()">&times;</button>
+        </div>
+        <form id="formCanal" method="POST" action="{{ url_for('salvar_canal') }}">
+            <input type="hidden" id="canal_id" name="id" value="">
+            
+            <div class="form-grupo">
+                <label for="canal_nome">Nome do Canal</label>
+                <input type="text" id="canal_nome" name="nome" class="form-controle" placeholder="Ex: Google, Instagram, Indicação..." required maxlength="50">
+            </div>
+
+            <div class="form-grupo">
+                <label class="form-checkbox">
+                    <input type="checkbox" id="canal_ativo" name="ativo" value="1" checked>
+                    Disponível no sistema (Ativo)
+                </label>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn-cancelar" onclick="fecharModalForm()">Cancelar</button>
+                <button type="submit" class="btn-principal" id="btnSalvar">Salvar Alterações</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const modal = document.getElementById('modalCanal');
+    const modalTitulo = document.getElementById('modalTitulo');
+    const formCanal = document.getElementById('formCanal');
+    const canalId = document.getElementById('canal_id');
+    const canalNome = document.getElementById('canal_nome');
+    const canalAtivo = document.getElementById('canal_ativo');
+    const btnSalvar = document.getElementById('btnSalvar');
+
+    function abrirModalForm(isEdicao, id = '', nome = '', ativo = 'True') {
+        modal.classList.add('active');
+        
+        // Reseta o estado do botão caso tenha sido alterado anteriormente
+        btnSalvar.innerHTML = 'Salvar Alterações';
+        btnSalvar.disabled = false;
+        btnSalvar.style.backgroundColor = ''; 
+        btnSalvar.style.color = '';
+
+        if (isEdicao) {
+            modalTitulo.innerText = 'Editar Canal de Aquisição';
+            canalId.value = id;
+            canalNome.value = nome;
+            // Trata a string booleana vinda do Jinja ('True' ou '1')
+            canalAtivo.checked = (ativo === 'True' || ativo === '1' || ativo === 'None');
+        } else {
+            modalTitulo.innerText = 'Novo Canal de Aquisição';
+            formCanal.reset();
+            canalId.value = '';
+            canalAtivo.checked = true;
+        }
+        
+        setTimeout(() => canalNome.focus(), 100);
+    }
+
+    function fecharModalForm() {
+        modal.classList.remove('active');
+    }
+
+    // Fecha o modal ao clicar fora do contentor administrativo
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) fecharModalForm();
+    });
+
+    // --- LÓGICA DE SALVAMENTO VIA AJAX ---
+    formCanal.addEventListener('submit', function(e) {
+        e.preventDefault(); // Impede o envio tradicional que recarrega a página
+
+        const originalText = btnSalvar.innerHTML;
+        btnSalvar.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Aguarde...';
+        btnSalvar.disabled = true;
+
+        const formData = new FormData(this);
+
+        fetch(this.action, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'Accept': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.sucesso) {
+                // Feedback visual de sucesso
+                btnSalvar.innerHTML = '<i class="fas fa-check"></i> OK';
+                btnSalvar.style.backgroundColor = '#00b359'; // Verde intenso
+                btnSalvar.style.color = '#ffffff';
+                
+                // Recarrega a página após 1 segundo para atualizar a tabela na tela
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                // Em caso de erro tratado no backend
+                btnSalvar.innerHTML = originalText;
+                btnSalvar.disabled = false;
+                alert(data.mensagem || 'Erro ao salvar o canal.');
+            }
+        })
+        .catch(error => {
+            console.error('Erro de requisição:', error);
+            btnSalvar.innerHTML = originalText;
+            btnSalvar.disabled = false;
+            alert('Falha de comunicação com o servidor. Verifique o console.');
+        });
+    });
+</script>
+{% endblock %}

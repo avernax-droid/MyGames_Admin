@@ -1,0 +1,254 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: opcoes_estado.html
+  DATA DE CRIAÇÃO: 15/06/2026
+  TÍTULO: Gestão de Opções de Estado de Conservação
+  FUNÇÃO: CRUD dos estados (Novo, Usado, Com Detalhes, etc) e seus impactos no preço.
+  HISTÓRICO DE ALTERAÇÕES:
+  - 15/06/2026: Correção do mapeamento da coluna (nome_estado para descricao) e remoção da redundância do menu vertical.
+  - 15/06/2026: Implementação completa do Modal CRUD e lógica de submissão via AJAX/Fetch API.
+  - 15/06/2026: Padronização visual do botão "Voltar" e da estrutura do Modal para alinhar com o Design System (categorias.html).
+  ==============================================================================
+#}
+{% extends 'base.html' %}
+
+{% block title %}Opções de Estado - MyGames Admin{% endblock %}
+
+{% block page_title %}Configurações > Opções de Estado{% endblock %}
+
+{% block content %}
+<style>
+    .Acoes-topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+    .botoes-container { display: flex; align-items: center; gap: 12px; }
+    
+    .btn-principal {
+        background-color: var(--cor-destaque); color: #121212; border: none; padding: 10px 20px;
+        border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.3s;
+        display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-principal:hover:not(:disabled) { background-color: #00b359; box-shadow: 0 0 10px rgba(0, 230, 118, 0.4); }
+    .btn-principal:disabled { cursor: not-allowed; opacity: 0.8; }
+    
+    .btn-voltar {
+        background: transparent; border: 1px solid #444; color: var(--texto-dim);
+        padding: 9px 16px; border-radius: 6px; cursor: pointer; transition: 0.2s;
+        font-size: 14px; font-weight: 600; text-decoration: none;
+        display: inline-flex; align-items: center; gap: 6px; width: max-content;
+    }
+    .btn-voltar:hover { border-color: var(--texto-br); color: var(--texto-br); background-color: rgba(255, 255, 255, 0.05); }
+
+    .tabela-admin { width: 100%; border-collapse: collapse; margin-top: 15px; text-align: left; }
+    .tabela-admin th, .tabela-admin td { padding: 14px 16px; border-bottom: var(--borda-fina); }
+    .tabela-admin th { color: var(--texto-dim); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .tabela-admin td { color: var(--texto-br); font-size: 15px; }
+    .tabela-admin tr:hover { background-color: rgba(255, 255, 255, 0.02); }
+    
+    .btn-acao {
+        background: transparent; border: 1px solid #444; color: var(--texto-dim);
+        padding: 6px 12px; border-radius: 4px; cursor: pointer; transition: 0.2s;
+        font-size: 13px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
+    }
+    .btn-acao:hover { border-color: var(--cor-destaque); color: var(--texto-br); }
+
+    /* --- ESTILIZAÇÃO DO MODAL (Padrão Design System) --- */
+    .modal-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.75); display: flex; justify-content: center; align-items: center;
+        z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+    }
+    .modal-overlay.active { opacity: 1; pointer-events: auto; }
+    .modal-container {
+        background: var(--bg-card); border: var(--borda-fina); border-radius: 12px;
+        width: 450px; max-width: 90%; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        transform: translateY(-20px); transition: transform 0.3s ease;
+    }
+    .modal-overlay.active .modal-container { transform: translateY(0); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: var(--borda-fina); padding-bottom: 15px; margin-bottom: 20px; }
+    .modal-header h3 { font-size: 18px; color: var(--texto-br); }
+    .modal-close { background: transparent; border: none; color: var(--texto-dim); font-size: 20px; cursor: pointer; transition: 0.2s; }
+    .modal-close:hover { color: #ff4444; }
+    
+    .form-grupo { margin-bottom: 20px; display: flex; flex-direction: column; gap: 8px; }
+    .form-grupo label { color: var(--texto-dim); font-size: 14px; }
+    .form-controle {
+        background: #151515; border: var(--borda-fina); border-radius: 6px; padding: 12px;
+        color: var(--texto-br); font-size: 15px; transition: 0.3s;
+    }
+    .form-controle:focus { border-color: var(--cor-destaque); outline: none; box-shadow: 0 0 5px rgba(0, 230, 118, 0.2); }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 12px; border-top: var(--borda-fina); padding-top: 15px; margin-top: 25px; }
+    .btn-cancelar { background: transparent; border: 1px solid #444; color: var(--texto-dim); padding: 10px 18px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    .btn-cancelar:hover { background: rgba(255,255,255,0.05); color: var(--texto-br); }
+</style>
+
+<div class="card-admin">
+    {% if not categoria_selecionada %}
+        <p style="text-align: center; color: var(--texto-dim); padding: 40px;">Selecione uma categoria no menu lateral esquerdo para configurar as opções de estado.</p>
+    {% else %}
+        <div class="Acoes-topo">
+            <h2 style="color: var(--texto-br); font-size: 20px;">Estados Configurados: <span style="color: var(--cor-destaque);">{{ categoria_ativa.nome }}</span></h2>
+            
+            <div class="botoes-container">
+                <a href="{{ url_for('dashboard') }}" class="btn-voltar">
+                    Voltar
+                </a>
+                <button class="btn-principal" onclick="abrirModalForm(false)">
+                    <i class="fas fa-plus"></i> Novo Estado
+                </button>
+            </div>
+        </div>
+
+        <table class="tabela-admin">
+            <thead>
+                <tr>
+                    <th>Nome do Estado (Descrição)</th>
+                    <th>Depreciação (%)</th>
+                    <th>Extra Fixo (R$)</th>
+                    <th style="text-align: right;">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in lista_opcoes %}
+                <tr>
+                    <td style="font-weight: 500;">{{ item.descricao }}</td>
+                    <td>{{ item.fator_depreciacao }}%</td>
+                    <td>R$ {{ "%.2f"|format(item.valor_fixo_extra) }}</td>
+                    <td style="text-align: right;">
+                        <button class="btn-acao" onclick="abrirModalForm(true, '{{ item.id }}', '{{ item.descricao }}', '{{ item.fator_depreciacao }}', '{{ item.valor_fixo_extra }}')">
+                            <i class="fas fa-edit"></i> Editar
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4" style="text-align: center; color: var(--texto-dim); padding: 30px;">
+                        Nenhum estado configurado para esta categoria no banco de dados.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</div>
+
+<div class="modal-overlay" id="modalOpcoesEstado">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 id="modalTitulo">Nova Opção de Estado</h3>
+            <button class="modal-close" onclick="fecharModalForm()">&times;</button>
+        </div>
+        <form id="formOpcoesEstado" method="POST" action="{{ url_for('salvar_opcao_estado') }}">
+            <input type="hidden" id="opcao_id" name="id" value="">
+            <input type="hidden" id="categoria_id" name="categoria_id" value="{{ categoria_selecionada }}">
+            
+            <div class="form-grupo">
+                <label for="descricao">Nome do Estado / Descrição</label>
+                <input type="text" id="descricao" name="descricao" class="form-controle" placeholder="Ex: Excelente, Com Marcas de Uso..." required maxlength="255">
+            </div>
+            
+            <div class="form-grupo">
+                <label for="fator_depreciacao">Fator de Depreciação (%)</label>
+                <input type="number" step="0.01" min="0" max="100" id="fator_depreciacao" name="fator_depreciacao" class="form-controle" placeholder="Ex: 15.00" required>
+                <small style="color: #666; font-size: 11px;">Percentual de desconto aplicado sobre o valor base do produto.</small>
+            </div>
+            
+            <div class="form-grupo">
+                <label for="valor_fixo_extra">Valor Fixo Extra (R$)</label>
+                <input type="number" step="0.01" id="valor_fixo_extra" name="valor_fixo_extra" class="form-controle" placeholder="Ex: 0.00" required>
+                <small style="color: #666; font-size: 11px;">Valor bônus ou ônus somado/subtraído no lote final.</small>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn-cancelar" onclick="fecharModalForm()">Cancelar</button>
+                <button type="submit" class="btn-principal" id="btnSalvar">Salvar Alterações</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const modal = document.getElementById('modalOpcoesEstado');
+    const modalTitulo = document.getElementById('modalTitulo');
+    const formOpcoesEstado = document.getElementById('formOpcoesEstado');
+    const opcaoId = document.getElementById('opcao_id');
+    const descricaoInput = document.getElementById('descricao');
+    const depreciacaoInput = document.getElementById('fator_depreciacao');
+    const extraInput = document.getElementById('valor_fixo_extra');
+    const btnSalvar = document.getElementById('btnSalvar');
+
+    function abrirModalForm(isEdicao, id = '', descricao = '', dep = '', extra = '') {
+        modal.classList.add('active');
+        
+        btnSalvar.innerHTML = 'Salvar Alterações';
+        btnSalvar.disabled = false;
+        btnSalvar.style.backgroundColor = ''; 
+        btnSalvar.style.color = '';
+
+        if (isEdicao) {
+            modalTitulo.innerText = 'Editar Opção de Estado';
+            opcaoId.value = id;
+            descricaoInput.value = descricao;
+            depreciacaoInput.value = dep;
+            extraInput.value = extra;
+        } else {
+            modalTitulo.innerText = 'Nova Opção de Estado';
+            formOpcoesEstado.reset();
+            opcaoId.value = '';
+        }
+        
+        setTimeout(() => descricaoInput.focus(), 100);
+    }
+
+    function fecharModalForm() {
+        modal.classList.remove('active');
+    }
+
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) fecharModalForm();
+    });
+
+    // Submissão via AJAX com feedback visual
+    formOpcoesEstado.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const originalText = btnSalvar.innerHTML;
+        btnSalvar.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Aguarde...';
+        btnSalvar.disabled = true;
+
+        const formData = new FormData(this);
+        // Convertendo FormData para objeto JSON conforme rota atualizada no server.py
+        const payload = Object.fromEntries(formData.entries());
+
+        fetch(this.action, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) { // Observação: server.py retorna {'success': True}
+                btnSalvar.innerHTML = '<i class="fas fa-check"></i> OK';
+                btnSalvar.style.backgroundColor = '#00b359';
+                btnSalvar.style.color = '#ffffff';
+                
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                btnSalvar.innerHTML = originalText;
+                btnSalvar.disabled = false;
+                alert(data.error || 'Erro ao salvar a opção de estado.');
+            }
+        })
+        .catch(error => {
+            console.error('Erro de requisição:', error);
+            btnSalvar.innerHTML = originalText;
+            btnSalvar.disabled = false;
+            alert('Falha de comunicação com o servidor. Verifique o console.');
+        });
+    });
+</script>
+{% endblock %}

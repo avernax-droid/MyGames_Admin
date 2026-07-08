@@ -1,0 +1,426 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: regioes.html
+  DATA DE CRIAÇÃO: 01/06/2026
+  TÍTULO: Gestão de Regiões de Atendimento
+  FUNÇÃO: Interface de listagem e configuração (CRUD) das praças logísticas atendidas.
+  Permite definir o multiplicador de preço por região através de janela Modal nativa,
+  restrito ao nível de acesso de Administrador.
+  
+  HISTÓRICO DE ALTERAÇÕES:
+  - 01/06/2026: Criação da interface inicial de Regiões com tabela e Modal em Dark Mode.
+  - 01/06/2026: Correção de mapeamento de campos (cidade, estado_uf, multiplicador_preco, ativo) conforme schema do DB.
+  - 01/06/2026: Padronização do botão "+ Nova Região" e globalização das classes btn-primary e btn-secondary.
+  - 04/06/2026: Adição de rotina JavaScript de auto-completar na "Cidade" para preenchimento dinâmico de "UF" via IBGE.
+  - 04/06/2026: Correção de erro de sintaxe do Jinja2 (endendif -> endif).
+  - 04/06/2026: Implementação de AJAX no formulário de regiões para manter o modal aberto e exibir feedback visual.
+  - 15/06/2026: Inclusão do botão "Voltar" padronizado no cabeçalho da página.
+  ==============================================================================
+#}
+{% extends 'base.html' %}
+
+{% block title %}Regiões de Atendimento - MyGames Admin{% endblock %}
+
+{% block page_title %}
+    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <span>Regiões de Atendimento</span>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <a href="{{ url_for('dashboard') }}" class="btn-voltar">
+                Voltar
+            </a>
+            <button onclick="abrirModalRegiao()" class="btn-primary">
+                + Nova Região
+            </button>
+        </div>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="card-admin">
+    <div style="overflow-x: auto;">
+        <table class="table-regioes">
+            <thead>
+                <tr>
+                    <th width="5%">ID</th>
+                    <th width="35%">Cidade</th>
+                    <th width="15%">UF</th>
+                    <th width="25%">Multiplicador</th>
+                    <th width="10%">Status</th>
+                    <th width="10%" style="text-align: center;">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if regioes %}
+                    {% for regiao in regioes %}
+                    <tr>
+                        <td style="color: var(--texto-dim);">#{{ regiao.id }}</td>
+                        <td><strong>{{ regiao.cidade }}</strong></td>
+                        <td style="color: #e0e0e0; font-family: monospace; font-size: 15px;">{{ regiao.estado_uf }}</td>
+                        <td style="color: var(--cor-destaque); font-family: monospace; font-size: 14px;">{{ regiao.multiplicador_preco }}</td>
+                        <td>
+                            {% if regiao.ativo %}
+                                <span class="badge badge-ativo">Ativa</span>
+                            {% else %}
+                                <span class="badge badge-inativo">Inativa</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: center;">
+                            <button class="btn-editar" 
+                                onclick="abrirModalRegiao('{{ regiao.id }}', '{{ regiao.cidade }}', '{{ regiao.estado_uf }}', '{{ regiao.multiplicador_preco }}', '{{ regiao.ativo }}')">
+                                Editar
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 30px; color: var(--texto-dim);">
+                            Nenhuma região cadastrada no sistema ainda.
+                        </td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="modal-regiao" class="modal-overlay">
+    <div class="modal-box card-admin" style="max-width: 550px;">
+        <header class="modal-header">
+            <h3 id="modal-titulo" style="color: var(--cor-destaque); margin: 0; text-transform: uppercase;">Nova Região</h3>
+            <button type="button" class="btn-fechar" onclick="fecharModalRegiao()">✖</button>
+        </header>
+
+        <form action="/regioes/salvar" method="POST" id="form-regiao">
+            <input type="hidden" name="id" id="modal-id" value="">
+
+            <div class="form-group" style="position: relative;">
+                <label for="modal-cidade">Cidade</label>
+                <input type="text" name="cidade" id="modal-cidade" required class="input-dark" placeholder="Ex: São Paulo" autocomplete="off">
+                <div id="lista-cidades" class="autocomplete-dropdown"></div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                    <label for="modal-uf">UF</label>
+                    <input type="text" name="estado_uf" id="modal-uf" required class="input-dark" maxlength="2" placeholder="SP">
+                </div>
+                
+                <div class="form-group" style="flex: 2;">
+                    <label for="modal-multiplicador">Multiplicador Preço</label>
+                    <input type="number" step="0.01" name="multiplicador_preco" id="modal-multiplicador" required class="input-dark" placeholder="1.00">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="modal-ativo">Status da Região</label>
+                <select name="ativo" id="modal-ativo" required class="input-dark">
+                    <option value="1">Ativa (Habilitada no Site)</option>
+                    <option value="0">Inativa (Bloqueada no Site)</option>
+                </select>
+            </div>
+
+            <div class="modal-acoes">
+                <button type="button" class="btn-secondary" onclick="fecharModalRegiao()">CANCELAR</button>
+                <button type="submit" class="btn-primary">SALVAR REGIÃO</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+    /* Estilos da Tabela de Regiões */
+    .table-regioes { width: 100%; border-collapse: collapse; color: var(--texto-br); }
+    .table-regioes th { background-color: #151515; padding: 15px; text-align: left; font-size: 12px; color: var(--texto-dim); border-bottom: 2px solid #333; text-transform: uppercase; }
+    .table-regioes td { padding: 15px; border-bottom: 1px solid #2a2a2a; font-size: 14px; vertical-align: middle; }
+    .table-regioes tbody tr:hover { background-color: rgba(255, 255, 255, 0.02); }
+
+    /* Badges de Status */
+    .badge { padding: 5px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+    .badge-ativo { background: rgba(0, 255, 0, 0.1); color: #00ff00; border: 1px solid rgba(0, 255, 0, 0.2); }
+    .badge-inativo { background: rgba(255, 255, 255, 0.05); color: #888; border: 1px solid #444; }
+    
+    .btn-editar { background: #333; border: 1px solid #555; color: var(--texto-br); padding: 6px 12px; border-radius: 4px; cursor: pointer; transition: 0.2s; font-size: 12px; }
+    .btn-editar:hover { background: #444; border-color: var(--cor-destaque); color: var(--cor-destaque); }
+
+    /* Estilos do Modal Overlay */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
+    .modal-box { width: 100%; max-width: 500px; background: #111; padding: 30px; position: relative; border: 1px solid #333; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 15px; margin-bottom: 20px; }
+    .btn-fechar { background: none; border: none; color: #888; font-size: 20px; cursor: pointer; transition: 0.2s; }
+    .btn-fechar:hover { color: #ff4444; }
+
+    /* Inputs do Formulário Dark Mode */
+    .form-group { margin-bottom: 15px; display: flex; flex-direction: column; gap: 5px; }
+    .form-row { display: flex; gap: 15px; }
+    .form-group label { color: var(--texto-dim); font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+    .input-dark { width: 100%; padding: 12px; background: #151515; border: 1px solid #333; border-radius: 6px; color: var(--texto-br); font-family: inherit; font-size: 14px; transition: 0.3s; }
+    .input-dark:focus { border-color: var(--cor-destaque); outline: none; background: #1a1a1a; box-shadow: 0 0 5px rgba(0, 255, 0, 0.1); }
+
+    /* Estrutura de Ações Padronizada */
+    .modal-acoes {
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px solid #2a2a2a;
+        display: flex;
+        justify-content: flex-end;
+        gap: 15px;
+    }
+    
+    /* Estilos Globais para Botões */
+    .btn-primary {
+        background-color: var(--cor-destaque);
+        color: #000000;
+        border: none;
+        padding: 10px 20px;
+        font-size: 13px;
+        font-weight: bold;
+        text-transform: uppercase;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: 0.2s ease-in-out;
+    }
+    
+    .btn-primary:hover {
+        background-color: #00b45a;
+        box-shadow: 0 0 10px rgba(0, 230, 118, 0.2);
+    }
+    
+    .btn-secondary {
+        background: transparent;
+        border: 1px solid #444;
+        color: var(--texto-dim);
+        padding: 10px 20px;
+        font-size: 13px;
+        font-weight: bold;
+        text-transform: uppercase;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: 0.2s ease-in-out;
+    }
+    
+    .btn-secondary:hover {
+        background-color: #222;
+        border-color: #666;
+        color: var(--texto-br);
+    }
+
+    /* Botão Voltar Padronizado */
+    .btn-voltar {
+        background: transparent;
+        border: 1px solid #444;
+        color: var(--texto-dim);
+        padding: 9px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: 0.2s;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        width: max-content;
+    }
+    
+    .btn-voltar:hover {
+        border-color: var(--texto-br);
+        color: var(--texto-br);
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    /* Autocomplete CSS */
+    .autocomplete-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-top: none;
+        border-radius: 0 0 6px 6px;
+        z-index: 1001;
+        max-height: 200px;
+        overflow-y: auto;
+        display: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    .autocomplete-item {
+        padding: 10px 12px;
+        cursor: pointer;
+        color: var(--texto-br);
+        font-size: 13px;
+        border-bottom: 1px solid #222;
+        transition: 0.2s;
+    }
+    .autocomplete-item:last-child {
+        border-bottom: none;
+    }
+    .autocomplete-item:hover {
+        background-color: #252525;
+        color: var(--cor-destaque);
+    }
+    .autocomplete-item span.uf-tag {
+        color: #888;
+        font-size: 11px;
+        margin-left: 8px;
+        font-family: monospace;
+    }
+</style>
+
+<script>
+    // Manipulação dinâmica do Modal de Regiões
+    function abrirModalRegiao(id = '', cidade = '', estado_uf = '', multiplicador_preco = '', ativo = '1') {
+        document.getElementById('modal-titulo').innerText = id ? 'Editar Região' : 'Nova Região';
+        
+        document.getElementById('modal-id').value = id;
+        document.getElementById('modal-cidade').value = cidade;
+        document.getElementById('modal-uf').value = estado_uf;
+        document.getElementById('modal-multiplicador').value = multiplicador_preco;
+        document.getElementById('modal-ativo').value = ativo;
+        
+        // Limpa resquícios do autocomplete e mensagens de sucesso antigas
+        document.getElementById('lista-cidades').style.display = 'none';
+        document.getElementById('lista-cidades').innerHTML = '';
+        
+        const msgDiv = document.getElementById('modal-mensagem');
+        if (msgDiv) msgDiv.remove();
+
+        const btnSubmit = document.querySelector('#form-regiao button[type="submit"]');
+        btnSubmit.disabled = false;
+        btnSubmit.innerText = 'SALVAR REGIÃO';
+
+        document.getElementById('modal-regiao').style.display = 'flex';
+    }
+
+    function fecharModalRegiao() {
+        document.getElementById('modal-regiao').style.display = 'none';
+        document.getElementById('form-regiao').reset();
+        document.getElementById('lista-cidades').style.display = 'none';
+    }
+    
+    // Fecha o modal ao clicar fora da caixa de conteúdo
+    document.getElementById('modal-regiao').addEventListener('click', function(e) {
+        if (e.target === this) {
+            fecharModalRegiao();
+        }
+    });
+
+    // Submissão Silenciosa (AJAX) para manter o Modal Aberto
+    document.getElementById('form-regiao').addEventListener('submit', function(e) {
+        e.preventDefault(); 
+        
+        const form = this;
+        const formData = new FormData(form);
+        const btnSubmit = form.querySelector('button[type="submit"]');
+
+        btnSubmit.disabled = true;
+        btnSubmit.innerText = 'SALVANDO...';
+
+        fetch(form.action, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'Accept': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            let msgDiv = document.getElementById('modal-mensagem');
+            if (!msgDiv) {
+                msgDiv = document.createElement('div');
+                msgDiv.id = 'modal-mensagem';
+                msgDiv.style.padding = '12px';
+                msgDiv.style.marginBottom = '20px';
+                msgDiv.style.borderRadius = '6px';
+                msgDiv.style.textAlign = 'center';
+                msgDiv.style.fontWeight = 'bold';
+                form.insertBefore(msgDiv, form.firstChild);
+            }
+
+            msgDiv.innerText = data.mensagem;
+
+            if (data.sucesso) {
+                // Sucesso: Cor Verde
+                msgDiv.style.color = '#00ff00';
+                msgDiv.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
+                msgDiv.style.border = '1px solid rgba(0, 255, 0, 0.2)';
+                
+                // Recarrega a página automaticamente após 1.5s para atualizar a tabela
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
+            } else {
+                // Erro: Cor Vermelha
+                msgDiv.style.color = '#ff4444';
+                msgDiv.style.backgroundColor = 'rgba(255, 68, 68, 0.05)';
+                msgDiv.style.border = '1px dashed #ff4444';
+                btnSubmit.disabled = false;
+                btnSubmit.innerText = 'SALVAR REGIÃO';
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            btnSubmit.disabled = false;
+            btnSubmit.innerText = 'SALVAR REGIÃO';
+        });
+    });
+
+    // Lógica do Autocomplete de Cidades/UF (IBGE via Flask Proxy)
+    document.addEventListener("DOMContentLoaded", function() {
+        const inputCidade = document.getElementById('modal-cidade');
+        const inputUf = document.getElementById('modal-uf');
+        const listaResultados = document.getElementById('lista-cidades');
+        let timeoutBusca;
+
+        inputCidade.addEventListener('input', function() {
+            clearTimeout(timeoutBusca);
+            const termo = this.value.trim();
+
+            if (termo.length < 3) {
+                listaResultados.style.display = 'none';
+                return;
+            }
+
+            timeoutBusca = setTimeout(() => {
+                fetch(`/api/buscar_cidades?q=${encodeURIComponent(termo)}`)
+                    .then(response => response.json())
+                    .then(dados => {
+                        listaResultados.innerHTML = '';
+                        
+                        if (dados.length > 0) {
+                            dados.forEach(item => {
+                                const div = document.createElement('div');
+                                div.className = 'autocomplete-item';
+                                div.innerHTML = `${item.cidade} <span class="uf-tag">(${item.uf})</span>`;
+                                
+                                div.addEventListener('click', function() {
+                                    inputCidade.value = item.cidade;
+                                    inputUf.value = item.uf;
+                                    listaResultados.style.display = 'none';
+                                });
+                                
+                                listaResultados.appendChild(div);
+                            });
+                            listaResultados.style.display = 'block';
+                        } else {
+                            listaResultados.style.display = 'none';
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Erro ao buscar cidades:', err);
+                        listaResultados.style.display = 'none';
+                    });
+            }, 400); 
+        });
+
+        // Esconde lista se clicar fora do input de cidade
+        document.addEventListener('click', function(e) {
+            if (e.target !== inputCidade && e.target !== listaResultados) {
+                listaResultados.style.display = 'none';
+            }
+        });
+    });
+</script>
+{% endblock %}

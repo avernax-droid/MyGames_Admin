@@ -1,0 +1,400 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: monitor_sla.html
+  DATA DE CRIAÇÃO: 05/07/2026
+  TÍTULO: Monitoramento de SLA (Atrasos)
+  FUNÇÃO: Tela de monitoramento de protocolos em atraso, com filtros e exportação de dados.
+  
+  HISTÓRICO DE ALTERAÇÕES:
+  05/07/2026: Ajuste de UI: Redimensionamento do campo 'Dias' (Grid CSS).
+  05/07/2026: Nova Funcionalidade: Script JS nativo para exportação CSV/XLS.
+  05/07/2026: UX Fluxo: Remoção de nova aba (target=_blank) e injeção do 
+                parâmetro ?origem=monitor_sla na rota de Ação.
+  06/07/2026: UX UI: Refatoração do bloco de listagem vazia para exibir instrução de busca caso nenhum filtro tenha sido aplicado. 
+  07/07/2026: Nova Funcionalidade: Inclusão de colunas ocultas (telefone, endereço, rastreio) para exportação de relatórios enriquecidos.
+  07/07/2026: Aplicação de máscara de formatação nativa (Jinja2) na coluna oculta do WhatsApp para exportação de relatórios.
+  ==============================================================================
+#}
+{% extends "base.html" %}
+
+{% block title %}Monitor de SLA - MyGames{% endblock %}
+{% block page_title %}Monitor de SLA (Atrasos){% endblock %}
+
+{% block content %}
+<style>
+    /* Ajuste de Proporção: Campo de Dias ficou menor (1fr) comparado aos outros (2fr e 2.5fr) */
+    .form-filtros {
+        display: grid;
+        grid-template-columns: 2fr 2.5fr 1fr auto;
+        gap: 15px;
+        align-items: flex-end;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 13px;
+        color: var(--texto-dim);
+        font-weight: 600;
+    }
+    .form-control {
+        width: 100%;
+        padding: 10px 15px;
+        background-color: #111;
+        border: 1px solid #333;
+        color: var(--texto-br);
+        border-radius: 6px;
+        font-size: 14px;
+    }
+    .form-control:focus {
+        border-color: var(--cor-destaque);
+        outline: none;
+    }
+    .btn-filtrar {
+        background-color: var(--cor-destaque);
+        color: #000;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: 0.3s;
+        height: 40px;
+    }
+    .btn-filtrar:hover {
+        background-color: #00c853;
+    }
+    .btn-limpar {
+        background-color: transparent;
+        color: var(--texto-dim);
+        border: 1px solid #444;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-weight: bold;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        height: 40px;
+        line-height: 18px;
+        transition: 0.3s;
+    }
+    .btn-limpar:hover {
+        background-color: #333;
+        color: #fff;
+    }
+    
+    /* Bloco de Exportação */
+    .export-box {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 20px;
+        padding-top: 15px;
+        border-top: 1px dashed #333;
+    }
+    .btn-exportar {
+        background-color: #0dcaf0;
+        color: #000;
+        border: none;
+        padding: 9px 15px;
+        border-radius: 6px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: 0.3s;
+        font-size: 13px;
+    }
+    .btn-exportar:hover {
+        background-color: #31d2f2;
+    }
+
+    .table-admin {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+    }
+    .table-admin th {
+        background-color: #111;
+        color: var(--texto-dim);
+        padding: 12px 15px;
+        text-align: left;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        border-bottom: 2px solid #333;
+    }
+    .table-admin td {
+        padding: 15px;
+        border-bottom: 1px solid #2a2a2a;
+        font-size: 14px;
+        vertical-align: middle;
+    }
+    .table-admin tbody tr:hover {
+        background-color: rgba(255, 255, 255, 0.02);
+    }
+    .badge-status {
+        padding: 5px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: bold;
+        color: #fff;
+        display: inline-block;
+    }
+    .badge-atraso {
+        padding: 5px 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: bold;
+    }
+    .atraso-critico { background-color: rgba(220, 53, 69, 0.2); color: #ff4444; border: 1px solid #ff4444; }
+    .atraso-alerta { background-color: rgba(253, 126, 20, 0.2); color: #fd7e14; border: 1px solid #fd7e14; }
+    .atraso-ok { background-color: rgba(25, 135, 84, 0.2); color: #00e676; border: 1px solid #00e676; }
+    
+    .btn-acao {
+        background-color: #2a2a2a;
+        color: var(--texto-br);
+        padding: 8px 12px;
+        border-radius: 4px;
+        text-decoration: none;
+        font-size: 12px;
+        transition: 0.3s;
+        border: 1px solid #444;
+    }
+    .btn-acao:hover {
+        background-color: var(--cor-destaque);
+        color: #000;
+        border-color: var(--cor-destaque);
+    }
+</style>
+
+<div class="card-admin" style="margin-bottom: 30px;">
+    <h3 style="margin-bottom: 20px; font-size: 18px; color: var(--texto-br);">
+        <i class="fas fa-filter" style="color: var(--cor-destaque); margin-right: 10px;"></i> Filtros de Pesquisa
+    </h3>
+    
+    <form method="GET" action="{{ url_for('monitor_sla') }}">
+        <div class="form-filtros">
+            <div class="form-group">
+                <label for="numero_protocolo">Nº do Protocolo (Opcional)</label>
+                <input type="text" id="numero_protocolo" name="numero_protocolo" class="form-control" 
+                       value="{{ filtro_protocolo if filtro_protocolo else '' }}" placeholder="Ex: PRT-2026...">
+            </div>
+            
+            <div class="form-group">
+                <label for="status_id">Status Atual</label>
+                <select id="status_id" name="status_id" class="form-control">
+                    <option value="">Todos os Status em Andamento</option>
+                    {% for status in lista_status %}
+                        <option value="{{ status.id }}" {% if filtro_status == status.id %}selected{% endif %}>
+                            {{ status.nome_exibicao }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="dias_parados">Dias parados (&ge;)</label>
+                <input type="number" id="dias_parados" name="dias_parados" class="form-control" 
+                       value="{{ filtro_dias if filtro_dias else '' }}" min="0" placeholder="Ex: 3">
+            </div>
+            
+            <div style="display: flex; gap: 10px;">
+                <a href="{{ url_for('monitor_sla') }}" class="btn-limpar"><i class="fas fa-eraser"></i> Limpar</a>
+                <button type="submit" class="btn-filtrar"><i class="fas fa-search"></i> Buscar</button>
+            </div>
+        </div>
+    </form>
+
+    <div class="export-box">
+        <label for="formato_export" style="font-size: 13px; color: var(--texto-dim); font-weight: 600;">Exportar Listagem:</label>
+        <select id="formato_export" class="form-control" style="width: auto; padding: 8px 15px;">
+            <option value="csv">Planilha (.CSV)</option>
+            <option value="xls">Planilha Excel (.XLS)</option>
+        </select>
+        <button type="button" class="btn-exportar" onclick="exportarRelatorio()">
+            <i class="fas fa-download"></i> Baixar
+        </button>
+    </div>
+</div>
+
+<div class="card-admin">
+    <h3 style="margin-bottom: 20px; font-size: 18px; color: var(--texto-br);">
+        <i class="fas fa-list-ol" style="color: var(--cor-destaque); margin-right: 10px;"></i> Resultados da Auditoria
+    </h3>
+    
+    {% if protocolos %}
+        <table class="table-admin" id="tabela-sla">
+            <thead>
+                <tr>
+                    <th>Protocolo</th>
+                    <th>Cliente</th>
+                    <th>Status Atual</th>
+                    <th>Tempo Parado (SLA)</th>
+                    <th class="coluna-export" style="display: none;">WhatsApp</th>
+                    <th class="coluna-export" style="display: none;">Rastreio Correios</th>
+                    <th class="coluna-export" style="display: none;">CEP</th>
+                    <th class="coluna-export" style="display: none;">Endereço</th>
+                    <th class="coluna-export" style="display: none;">Número</th>
+                    <th class="coluna-export" style="display: none;">Complemento</th>
+                    <th class="coluna-export" style="display: none;">Bairro</th>
+                    <th class="coluna-export" style="display: none;">Cidade</th>
+                    <th class="coluna-export" style="display: none;">UF</th>
+                    <th style="text-align: center;" class="coluna-acao">Ação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in protocolos %}
+                    <tr>
+                        <td style="font-weight: bold; color: var(--cor-destaque);">{{ p.numero_protocolo }}</td>
+                        <td>{{ p.cliente_nome }}</td>
+                        <td>
+                            {% if p.status_nome %}
+                                <span class="badge-status" style="background-color: {{ p.cor_badge | default('#555') }};">
+                                    {{ p.status_nome }}
+                                </span>
+                            {% else %}
+                                <span style="color: #666; font-style: italic;">Aguardando Início</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% set dias = p.dias_no_status | default(0) | int %}
+                            
+                            {% if dias >= 5 %}
+                                <span class="badge-atraso atraso-critico"><i class="fas fa-exclamation-triangle"></i> {{ dias }} dias</span>
+                            {% elif dias >= 3 %}
+                                <span class="badge-atraso atraso-alerta"><i class="fas fa-clock"></i> {{ dias }} dias</span>
+                            {% else %}
+                                <span class="badge-atraso atraso-ok"><i class="fas fa-check-circle"></i> {{ dias }} {{ 'dia' if dias == 1 else 'dias' }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="coluna-export" style="display: none;">
+                            {%- if p.whatsapp -%}
+                                {%- set w = p.whatsapp | string | trim -%}
+                                {%- if w | length == 11 -%}
+                                    ({{ w[:2] }}) {{ w[2:7] }}-{{ w[7:] }}
+                                {%- elif w | length == 10 -%}
+                                    ({{ w[:2] }}) {{ w[2:6] }}-{{ w[6:] }}
+                                {%- else -%}
+                                    {{ w }}
+                                {%- endif -%}
+                            {%- endif -%}
+                        </td>
+                        <td class="coluna-export" style="display: none;">{{ p.codigo_rastreio | default('') }}</td>
+                        <td class="coluna-export" style="display: none;">{{ p.cep | default('') }}</td>
+                        <td class="coluna-export" style="display: none;">{{ p.endereco | default('') }}</td>
+                        <td class="coluna-export" style="display: none;">{{ p.numero | default('') }}</td>
+                        <td class="coluna-export" style="display: none;">{{ p.complemento | default('') }}</td>
+                        <td class="coluna-export" style="display: none;">{{ p.bairro | default('') }}</td>
+                        <td class="coluna-export" style="display: none;">{{ p.cidade | default('') }}</td>
+                        <td class="coluna-export" style="display: none;">{{ p.estado_uf | default('') }}</td>
+                        <td style="text-align: center;" class="coluna-acao">
+                            <a href="{{ url_for('periciar_na_esteira', protocolo_id=p.id, origem='monitor_sla') }}" class="btn-acao">
+                                <i class="fas fa-external-link-alt"></i> Acessar
+                            </a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div style="text-align: center; padding: 40px; color: var(--texto-dim); border: 1px dashed #333; border-radius: 8px;">
+            {% if filtro_status or filtro_dias or filtro_protocolo %}
+                <i class="fas fa-check-double" style="font-size: 40px; color: #333; margin-bottom: 15px;"></i>
+                <p style="font-size: 16px;">Nenhum protocolo encontrado com estes critérios.</p>
+                <p style="font-size: 13px; margin-top: 5px;">Sua esteira está perfeitamente em dia!</p>
+            {% else %}
+                <i class="fas fa-search" style="font-size: 40px; color: #333; margin-bottom: 15px;"></i>
+                <p style="font-size: 16px;">Painel de Auditoria de SLA</p>
+                <p style="font-size: 13px; margin-top: 5px;">Utilize os filtros acima para iniciar a pesquisa de protocolos.</p>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+
+<script>
+function exportarRelatorio() {
+    var formato = document.getElementById('formato_export').value;
+    var tabela = document.getElementById('tabela-sla');
+    
+    if (!tabela) {
+        alert('Não há dados para exportar na tela atual.');
+        return;
+    }
+
+    if (formato === 'csv') {
+        gerarCSV();
+    } else if (formato === 'xls') {
+        gerarExcel();
+    }
+}
+
+function gerarCSV() {
+    var csv = [];
+    var rows = document.querySelectorAll("#tabela-sla tr");
+    
+    for (var i = 0; i < rows.length; i++) {
+        var row = [], cols = rows[i].querySelectorAll("td:not(.coluna-acao), th:not(.coluna-acao)");
+        for (var j = 0; j < cols.length; j++) {
+            // Utilizamos textContent em vez de innerText para ler os dados que possuem display: none
+            var dadoTexto = cols[j].textContent.replace(/(\r\n|\n|\r)/gm, " ").replace(/"/g, '""').trim();
+            row.push('"' + dadoTexto + '"');
+        }
+        // Usa ponto e vírgula para compatibilidade nativa com Excel PT-BR
+        csv.push(row.join(";")); 
+    }
+    
+    var csvFile = new Blob(["\uFEFF" + csv.join("\n")], {type: "text/csv;charset=utf-8;"});
+    var downloadLink = document.createElement("a");
+    downloadLink.download = "relatorio_sla.csv";
+    downloadLink.href = window.URL.createObjectURL(csvFile);
+    downloadLink.style.display = "none";
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+}
+
+function gerarExcel() {
+    var tabelaOriginal = document.getElementById('tabela-sla');
+    var tabelaClone = tabelaOriginal.cloneNode(true);
+    
+    // Remove a coluna de ações para não poluir o Excel
+    var ths = tabelaClone.querySelectorAll('th.coluna-acao');
+    var tds = tabelaClone.querySelectorAll('td.coluna-acao');
+    ths.forEach(th => th.remove());
+    tds.forEach(td => td.remove());
+
+    // Remove o display: none das colunas ocultas para que o Excel renderize os dados
+    var colsExport = tabelaClone.querySelectorAll('.coluna-export');
+    colsExport.forEach(col => {
+        col.style.display = '';
+    });
+
+    var uri = 'data:application/vnd.ms-excel;base64,';
+    var template = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"></head><body><table>{table}</table></body></html>';
+    var base64 = function(s) { return window.btoa(unescape(encodeURIComponent(s))) };
+    var format = function(s, c) { return s.replace(/{(\w+)}/g, function(m, p) { return c[p]; }) };
+
+    var ctx = {worksheet: 'Relatorio SLA', table: tabelaClone.innerHTML};
+    var a = document.createElement('a');
+    a.href = uri + base64(format(template, ctx));
+    a.download = "relatorio_sla.xls";
+    a.click();
+}
+</script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const formFiltro = document.querySelector('form'); // Ajuste o seletor conforme o ID do seu form
+        if (formFiltro) {
+            formFiltro.addEventListener('submit', function() {
+                // Limpa o conteúdo da tabela ou container de resultados antes do reload
+                const containerResultados = document.getElementById('container-resultados'); 
+                if (containerResultados) {
+                    containerResultados.innerHTML = '<div style="text-align: center; padding: 20px;">Carregando novos resultados...</div>';
+                }
+            });
+        }
+    });
+</script>
+
+{% endblock %}
