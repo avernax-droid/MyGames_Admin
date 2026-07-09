@@ -17,6 +17,8 @@ __pycache__/
 .idea/
 *.swp
 *.txt
+!carga_configs.sql
+!requirements.txt
 
 # Arquivos de Sistema Operacional
 .DS_Store
