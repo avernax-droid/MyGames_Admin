@@ -55,6 +55,7 @@
 #               com cálculo dinâmico de DATEDIFF via banco de dados.
 # - 07/07/2026: Enriquecimento da query na função obter_relatorio_sla com adição de colunas do cliente 
 #               (whatsapp, endereço completo) e rastreio, preparando os dados para a exportação otimizada.
+# - 16/07/2026: Adição das funções enviar_email_pagamento_sucesso e enviar_email_devolucao_total para disparos transacionais da esteira.
 # ==============================================================================
 import mysql.connector
 import os
@@ -373,6 +374,123 @@ def enviar_email_triagem_recebimento(destinatario, nome_cliente, numero_protocol
         return True
     except Exception as e:
         print(f"Erro ao enviar e-mail de triagem: {e}")
+        return False
+
+def enviar_email_pagamento_sucesso(destinatario, nome_cliente, numero_protocolo, codigo_rastreio, valor_total_pix):
+    """
+    Envia notificação de que o pagamento via PIX foi realizado com sucesso.
+    """
+    try:
+        dados_empresa = obter_dados_empresa()
+        nome_empresa = dados_empresa['nome_fantasia'] if dados_empresa and 'nome_fantasia' in dados_empresa else "MyGames"
+
+        sender_email = os.getenv("EMAIL_USER")
+        sender_password = os.getenv("EMAIL_PASS")
+        smtp_server = os.getenv("EMAIL_HOST")
+        smtp_port = int(os.getenv("EMAIL_PORT", 587))
+
+        bloco_rastreio = f"<strong>Código de Rastreio:</strong> {codigo_rastreio}<br>" if codigo_rastreio else ""
+        valor_formatado = float(valor_total_pix) if valor_total_pix else 0.0
+
+        corpo_html = f"""
+        <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.5;">
+            <p>Olá {nome_cliente},</p>
+            <p>Muito obrigado por realizar a venda de seu Game Usado para a <strong>{nome_empresa}</strong>!</p>
+            <p>O seu processo de venda foi finalizado e o pagamento realizado através do PIX.</p>
+            
+            <p style="margin-bottom: 5px;"><strong>Protocolo:</strong> {numero_protocolo}<br>
+            {bloco_rastreio}</p>
+            
+            <div style="margin-top: 20px; padding-top: 10px; border-top: 2px solid #ccc; border-bottom: 2px solid #ccc; padding-bottom: 10px;">
+                <strong style="font-size: 16px; color: #000;">VALOR TOTAL DO PAGAMENTO : R$ {valor_formatado:.2f}</strong>
+            </div>
+            
+            <p style="margin-top: 20px;">Foi um prazer fazer negócio com você e tê-lo como nosso cliente.</p>
+            <br>
+            <p>Atenciosamente,<br>Equipe <strong>{nome_empresa}</strong></p>
+        </div>
+        """
+
+        msg = MIMEMultipart('alternative')
+        msg['From'] = formataddr((nome_empresa, sender_email))
+        msg['To'] = destinatario
+        msg['Subject'] = f"{nome_empresa} - Pagamento Realizado - Protocolo #{numero_protocolo}"
+        
+        msg.attach(MIMEText(corpo_html, 'html', 'utf-8'))
+
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Erro ao enviar e-mail de pagamento sucesso: {e}")
+        return False
+
+def enviar_email_devolucao_total(destinatario, nome_cliente, numero_protocolo, codigo_rastreio, itens_avaliados):
+    """
+    Envia notificação de devolução total dos produtos com aviso sobre frete.
+    """
+    try:
+        dados_empresa = obter_dados_empresa()
+        nome_empresa = dados_empresa['nome_fantasia'] if dados_empresa and 'nome_fantasia' in dados_empresa else "MyGames"
+
+        sender_email = os.getenv("EMAIL_USER")
+        sender_password = os.getenv("EMAIL_PASS")
+        smtp_server = os.getenv("EMAIL_HOST")
+        smtp_port = int(os.getenv("EMAIL_PORT", 587))
+
+        bloco_rastreio = f"<strong>Código de Rastreio:</strong> {codigo_rastreio}<br>" if codigo_rastreio else ""
+        
+        # Monta a lista de itens reprovados
+        html_itens = ""
+        if itens_avaliados:
+            for item in itens_avaliados:
+                nome_produto = item.get('nome_produto', 'Produto não identificado')
+                html_itens += f"{nome_produto} - <strong style='color: #dc3545;'>REPROVADO</strong><br>"
+        else:
+            html_itens = "Nenhum item listado.<br>"
+
+        corpo_html = f"""
+        <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.5;">
+            <p>Olá {nome_cliente},</p>
+            <p>Muito obrigado por realizar a sua cotação de venda de seu Game Usado para a <strong>{nome_empresa}</strong>!</p>
+            <p>O seu processo de venda foi analisado e seu(s) item(s) foram negados.</p>
+            
+            <p style="margin-bottom: 5px;"><strong>Protocolo:</strong> {numero_protocolo}<br>
+            {bloco_rastreio}</p>
+            
+            <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border: 1px solid #ddd;">
+                <strong style="display: block; margin-bottom: 10px;">AVALIAÇÃO DOS ÍTENS DA VENDA:</strong>
+                {html_itens}
+                <br>
+                <strong style="font-size: 15px; color: #000; display: block; border-top: 1px solid #ccc; padding-top: 10px;">VALOR TOTAL DA AVALIAÇÃO: R$ 0.00</strong>
+            </div>
+            
+            <p style="margin-top: 20px;">Infelizmente, precisamos seguir com a devolução de seu(s) item(s).</p>
+            <p>Lembramos que o <strong style="color: #dc3545;">FRETE DE DEVOLUÇÃO</strong> é pago por você.</p>
+            <p>Sendo assim, nossa equipe entrará em contato com você para que possa te passar o valor deste frete a fim de que você realize o pagamento e possamos seguir com a devolução dos produtos para você!</p>
+            <br>
+            <p>Atenciosamente,<br>Equipe <strong>{nome_empresa}</strong></p>
+        </div>
+        """
+
+        msg = MIMEMultipart('alternative')
+        msg['From'] = formataddr((nome_empresa, sender_email))
+        msg['To'] = destinatario
+        msg['Subject'] = f"{nome_empresa} - Devolução de Produtos - Protocolo #{numero_protocolo}"
+        
+        msg.attach(MIMEText(corpo_html, 'html', 'utf-8'))
+
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Erro ao enviar e-mail de devolução total: {e}")
         return False
 
 # [Funções de Protocolo e Esteira de Status]

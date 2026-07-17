@@ -34,6 +34,11 @@
 # - 05/07/2026: Criação da rota /monitor-sla (GET) para suportar o painel de auditoria de SLA e Aging de protocolos.
 # - 06/07/2026: Ajuste na rota /monitor-sla para abrir painel vazio, exigindo uso de filtros para consulta.
 # - 06/07/2026: Refatoração da rota /monitor-sla: Implementação de cabeçalhos anti-cache (no-store) e lógica de busca condicional (apenas com filtros).
+# - 16/07/2026: Inclusão das Regras 3 e 4 (Gatilhos de e-mail para Pagamento Sucesso e Devolução Total) nas rotas de alteração de status.
+# - 16/07/2026 (Fix): Implementação de Fallback Seguro de normalização (status_nome -> slug).
+# - 16/07/2026: Correção no valor disparado no e-mail de pagamento (priorizando valor_avaliado).
+# - 16/07/2026: Adição da Trava de Segurança para impedir edição de protocolos encerrados (ID 9).
+# - 16/07/2026: Adição de Exceção (Silêncio) para não disparar e-mail no status de Devolução Parcial de Produtos.
 # ==============================================================================
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify, make_response
@@ -46,6 +51,7 @@ import string
 import random
 from functools import wraps
 import requests
+import unicodedata
 from dotenv import load_dotenv
 import admin_engine
 
@@ -345,14 +351,24 @@ def periciar_na_esteira(protocolo_id):
 @app.route('/esteira/salvar_pericia/<int:protocolo_id>', methods=['POST'])
 @requer_permissao('protocolos', 'update')
 def salvar_pericia_esteira(protocolo_id):
+    is_ajax = request.headers.get('Accept') == 'application/json'
+
+    # TRAVA DE SEGURANÇA: Impede edição se o protocolo já estiver encerrado (ID 9)
+    protocolo_atual = admin_engine.obter_cabecalho_protocolo(protocolo_id)
+    if protocolo_atual and protocolo_atual.get('status_id') == 9:
+        msg_erro = 'Este protocolo já está encerrado e não pode ter seu status alterado.'
+        if is_ajax:
+            return jsonify({'sucesso': False, 'mensagem': msg_erro})
+        flash(msg_erro, 'warning')
+        return redirect(url_for('periciar_na_esteira', protocolo_id=protocolo_id))
+
     status_id = request.form.get('status_id')
     laudo_tecnico = request.form.get('laudo_tecnico')
     valor_avaliado = request.form.get('valor_avaliado')
     payload_itens = request.form.get('payload_itens')
-    origem = request.form.get('origem')  # <--- NOVA VARIÁVEL CAPTURADA
+    origem = request.form.get('origem')  
     
     admin_id = session.get('admin_id')
-    is_ajax = request.headers.get('Accept') == 'application/json'
 
     if not status_id or not valor_avaliado:
         if is_ajax:
@@ -369,11 +385,11 @@ def salvar_pericia_esteira(protocolo_id):
     if sucesso:
         protocolo_atualizado = admin_engine.obter_cabecalho_protocolo(protocolo_id)
         if protocolo_atualizado and protocolo_atualizado.get('cliente_email'):
-            slug = protocolo_atualizado.get('slug_tecnico', '').lower() if protocolo_atualizado.get('slug_tecnico') else ''
             
-            # -------------------------------------------------------------
-            # CORREÇÃO: CONSULTA DE RASTREIO GLOBAL PARA USO NAS REGRAS 1 E 2
-            # -------------------------------------------------------------
+            # FALLBACK SEGURO: Previne falha se o status foi criado manualmente no BD e está sem slug_tecnico
+            status_bruto = protocolo_atualizado.get('slug_tecnico') or protocolo_atualizado.get('status_nome', '')
+            slug = unicodedata.normalize('NFKD', status_bruto).encode('ASCII', 'ignore').decode('utf-8').lower()
+            
             codigo_rastreio = protocolo_atualizado.get('codigo_rastreio')
             status_rastreio_reversa = ""
             if codigo_rastreio:
@@ -388,17 +404,13 @@ def salvar_pericia_esteira(protocolo_id):
                     teve_nova_triagem = False
                     
                     for novo_item in itens_json:
-                        # Extrai do HTML se o botão foi clicado e marcou o produto como recebido ou não (True/False)
                         flag_nova_recebido = 1 if novo_item.get('recebido') else 0
-                        
                         for antigo in itens_antigos:
                             if str(antigo['id']) == str(novo_item['id_item']):
-                                # Se a situação física mudou comparada à memória do BD, houve triagem.
                                 if antigo.get('recebido_fisicamente') != flag_nova_recebido:
                                     teve_nova_triagem = True
                                 break
                                     
-                    # O email será disparado assim que o operador "Salvar Lote" contendo novas checagens
                     if teve_nova_triagem:
                         itens_atualizados = admin_engine.obter_itens_protocolo(protocolo_id)
                         admin_engine.enviar_email_triagem_recebimento(
@@ -413,10 +425,17 @@ def salvar_pericia_esteira(protocolo_id):
                 except Exception as e:
                     print(f"Erro ao processar gatilho de email de triagem: {e}")
             
+            # ==============================================================
+            # GATILHOS DE NOTIFICAÇÃO DO STATUS DA ESTEIRA
+            # ==============================================================
+            
+            # NOVA REGRA: Trava para Devolução Parcial de Produtos (Interrompe o fluxo de e-mail aqui)
+            if 'devolucao' in slug and 'parcial' in slug:
+                pass # Silêncio absoluto, não faz nada.
+
             # REGRA 2: Email Final da Perícia Técnica
-            if 'aprovado' in slug or 'negado' in slug or 'recusado' in slug or 'parcial' in slug:
+            elif 'aprovado' in slug or 'negado' in slug or 'recusado' in slug or 'parcial' in slug:
                 itens_atualizados_banco = admin_engine.obter_itens_protocolo(protocolo_id)
-                
                 admin_engine.enviar_email_status_pericia(
                     destinatario=protocolo_atualizado['cliente_email'],
                     nome_cliente=protocolo_atualizado['cliente_nome'],
@@ -429,6 +448,32 @@ def salvar_pericia_esteira(protocolo_id):
                     status_rastreio=status_rastreio_reversa  
                 )
 
+            # REGRA 3: Email de Pagamento Efetuado com Sucesso
+            elif 'pagamento' in slug and ('sucesso' in slug or 'efetuado' in slug or 'realizado' in slug):
+                # Lógica de prioridade financeira: valor_avaliado > valor_total_pix
+                valor_final_pagamento = protocolo_atualizado.get('valor_avaliado')
+                if valor_final_pagamento is None or float(valor_final_pagamento) <= 0:
+                    valor_final_pagamento = protocolo_atualizado.get('valor_total_pix', 0.0)
+
+                admin_engine.enviar_email_pagamento_sucesso(
+                    destinatario=protocolo_atualizado['cliente_email'],
+                    nome_cliente=protocolo_atualizado['cliente_nome'],
+                    numero_protocolo=protocolo_atualizado['numero_protocolo'],
+                    codigo_rastreio=codigo_rastreio,
+                    valor_total_pix=valor_final_pagamento
+                )
+                
+            # REGRA 4: Email de Devolução Total de Produtos
+            elif 'devolucao' in slug and 'total' in slug:
+                itens_atualizados_banco = admin_engine.obter_itens_protocolo(protocolo_id)
+                admin_engine.enviar_email_devolucao_total(
+                    destinatario=protocolo_atualizado['cliente_email'],
+                    nome_cliente=protocolo_atualizado['cliente_nome'],
+                    numero_protocolo=protocolo_atualizado['numero_protocolo'],
+                    codigo_rastreio=codigo_rastreio,
+                    itens_avaliados=itens_atualizados_banco
+                )
+
     if is_ajax:
         return jsonify({'sucesso': sucesso})
 
@@ -436,7 +481,6 @@ def salvar_pericia_esteira(protocolo_id):
         flash('Erro interno ao salvar a perícia.', 'error')
         return redirect(url_for('periciar_na_esteira', protocolo_id=protocolo_id))
 
-    # --- DESVIO INTELIGENTE (FALLBACK SEM AJAX) ---
     if origem == 'monitor_sla':
         return redirect(url_for('monitor_sla'))
         
@@ -474,7 +518,6 @@ def detalhes_protocolo(protocolo_id):
                 
     lista_status = admin_engine.buscar_status_ativos()
     
-    # NOVA LÓGICA DE CONSULTA AO RASTREIO DA LOGÍSTICA REVERSA
     historico_rastreio = []
     codigo_rastreio = dados_protocolo.get('codigo_rastreio')
     if codigo_rastreio:
@@ -489,6 +532,13 @@ def detalhes_protocolo(protocolo_id):
 @app.route('/protocolos/atualizar_status/<int:protocolo_id>', methods=['POST'])
 @requer_permissao('protocolos', 'update')
 def atualizar_status_protocolo(protocolo_id):
+    
+    # TRAVA DE SEGURANÇA: Impede edição se o protocolo já estiver encerrado (ID 9)
+    protocolo_atual = admin_engine.obter_cabecalho_protocolo(protocolo_id)
+    if protocolo_atual and protocolo_atual.get('status_id') == 9:
+        flash('Este protocolo já está encerrado e não pode ter seu status alterado.', 'warning')
+        return redirect(url_for('detalhes_protocolo', protocolo_id=protocolo_id))
+
     status_id = request.form.get('status_id')
     laudo_tecnico = request.form.get('laudo_tecnico')
     
@@ -501,12 +551,25 @@ def atualizar_status_protocolo(protocolo_id):
     sucesso = admin_engine.atualizar_status_protocolo(protocolo_id, status_id, laudo_tecnico, None, admin_id)
 
     if sucesso:
-        # Gatilho de notificação na edição pela listagem geral também
         protocolo_atualizado = admin_engine.obter_cabecalho_protocolo(protocolo_id)
         if protocolo_atualizado and protocolo_atualizado.get('cliente_email'):
-            slug = protocolo_atualizado.get('slug_tecnico', '').lower() if protocolo_atualizado.get('slug_tecnico') else ''
             
-            if 'aprovado' in slug or 'negado' in slug or 'recusado' in slug or 'parcial' in slug:
+            # FALLBACK SEGURO
+            status_bruto = protocolo_atualizado.get('slug_tecnico') or protocolo_atualizado.get('status_nome', '')
+            slug = unicodedata.normalize('NFKD', status_bruto).encode('ASCII', 'ignore').decode('utf-8').lower()
+            
+            codigo_rastreio = protocolo_atualizado.get('codigo_rastreio')
+            
+            # ==============================================================
+            # GATILHOS DE NOTIFICAÇÃO DO STATUS DA ESTEIRA
+            # ==============================================================
+            
+            # NOVA REGRA: Trava para Devolução Parcial de Produtos (Interrompe o fluxo de e-mail aqui)
+            if 'devolucao' in slug and 'parcial' in slug:
+                pass # Silêncio absoluto, não faz nada.
+
+            # REGRA 2: Email Final da Perícia Técnica
+            elif 'aprovado' in slug or 'negado' in slug or 'recusado' in slug or 'parcial' in slug:
                 admin_engine.enviar_email_status_pericia(
                     destinatario=protocolo_atualizado['cliente_email'],
                     nome_cliente=protocolo_atualizado['cliente_nome'],
@@ -515,6 +578,33 @@ def atualizar_status_protocolo(protocolo_id):
                     laudo_tecnico=protocolo_atualizado['laudo_tecnico'],
                     valor_avaliado=protocolo_atualizado['valor_avaliado']
                 )
+            
+            # REGRA 3: Email de Pagamento Efetuado com Sucesso
+            elif 'pagamento' in slug and ('sucesso' in slug or 'efetuado' in slug or 'realizado' in slug):
+                # Lógica de prioridade financeira: valor_avaliado > valor_total_pix
+                valor_final_pagamento = protocolo_atualizado.get('valor_avaliado')
+                if valor_final_pagamento is None or float(valor_final_pagamento) <= 0:
+                    valor_final_pagamento = protocolo_atualizado.get('valor_total_pix', 0.0)
+
+                admin_engine.enviar_email_pagamento_sucesso(
+                    destinatario=protocolo_atualizado['cliente_email'],
+                    nome_cliente=protocolo_atualizado['cliente_nome'],
+                    numero_protocolo=protocolo_atualizado['numero_protocolo'],
+                    codigo_rastreio=codigo_rastreio,
+                    valor_total_pix=valor_final_pagamento
+                )
+                
+            # REGRA 4: Email de Devolução Total de Produtos
+            elif 'devolucao' in slug and 'total' in slug:
+                itens_atualizados_banco = admin_engine.obter_itens_protocolo(protocolo_id)
+                admin_engine.enviar_email_devolucao_total(
+                    destinatario=protocolo_atualizado['cliente_email'],
+                    nome_cliente=protocolo_atualizado['cliente_nome'],
+                    numero_protocolo=protocolo_atualizado['numero_protocolo'],
+                    codigo_rastreio=codigo_rastreio,
+                    itens_avaliados=itens_atualizados_banco
+                )
+                
         flash('Status do protocolo atualizado com sucesso!', 'success')
     else:
         flash('Erro interno ao atualizar o status do protocolo.', 'error')
