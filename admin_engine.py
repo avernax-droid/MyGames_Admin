@@ -56,6 +56,7 @@
 # - 07/07/2026: Enriquecimento da query na função obter_relatorio_sla com adição de colunas do cliente 
 #               (whatsapp, endereço completo) e rastreio, preparando os dados para a exportação otimizada.
 # - 16/07/2026: Adição das funções enviar_email_pagamento_sucesso e enviar_email_devolucao_total para disparos transacionais da esteira.
+# - 18/07/2026: Correção na função enviar_email_status_pericia multiplicando o valor unitário pela quantidade declarada para exibição correta.
 # ==============================================================================
 import mysql.connector
 import os
@@ -156,7 +157,8 @@ def enviar_email_status_pericia(destinatario, nome_cliente, numero_protocolo, st
         if itens_avaliados:
             for item in itens_avaliados:
                 nome_produto = item.get('nome_produto', 'Produto não identificado')
-                valor_original = float(item.get('valor_pix_unitario', 0.0))
+                qtd_declarada = int(item.get('qtd_declarada', 1))
+                valor_original = float(item.get('valor_pix_unitario', 0.0)) * qtd_declarada
                 
                 valor_final_bd = item.get('valor_final_pix')
                 valor_final = float(valor_final_bd) if valor_final_bd is not None else valor_original
