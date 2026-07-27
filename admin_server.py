@@ -24,7 +24,7 @@
 # - 25/06/2026: Implementação do fluxo de recuperação de senha (Opção 2 - geração de senha provisória).
 # - 25/06/2026: Integração real do disparo de e-mail (SMTP) na recuperação de senha.
 # - 25/06/2026: Integração de envio automático de e-mail ao cliente nas rotas de alteração de status da perícia.
-# - 26/06/2026: Integração da consulta de rastreio da Logística Reversa (Correios) na rota detalhes_protocolo.
+# - 26/06/2026: Integração da consulta de rastreio (Correios) na rota detalhes_protocolo.
 # - 27/06/2026: Injeção do historico_rastreio (Correios) na rota de Perícia da Esteira (Cockpit).
 # - 30/06/2026: Atualização da rota salvar_pericia_esteira para processar a Perícia Granular.
 #               Implementação de gatilho inteligente para e-mail de divergência de recebimento.
@@ -39,6 +39,7 @@
 # - 16/07/2026: Correção no valor disparado no e-mail de pagamento (priorizando valor_avaliado).
 # - 16/07/2026: Adição da Trava de Segurança para impedir edição de protocolos encerrados (ID 9).
 # - 16/07/2026: Adição de Exceção (Silêncio) para não disparar e-mail no status de Devolução Parcial de Produtos.
+# - 27/07/2026: Padronização de nomenclatura: Substituição de variáveis e comentários de "Logística Reversa" para "Código de Rastreio".
 # ==============================================================================
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify, make_response
@@ -391,11 +392,11 @@ def salvar_pericia_esteira(protocolo_id):
             slug = unicodedata.normalize('NFKD', status_bruto).encode('ASCII', 'ignore').decode('utf-8').lower()
             
             codigo_rastreio = protocolo_atualizado.get('codigo_rastreio')
-            status_rastreio_reversa = ""
+            status_rastreio_correios = ""
             if codigo_rastreio:
                 historico = admin_engine.consultar_historico_rastreio(codigo_rastreio)
                 if historico:
-                     status_rastreio_reversa = historico[0].get('status', '')
+                     status_rastreio_correios = historico[0].get('status', '')
             
             # REGRA 1: Email de Triagem de Recebimento (Sucesso Total ou Divergência)
             if payload_itens:
@@ -420,7 +421,7 @@ def salvar_pericia_esteira(protocolo_id):
                             itens_avaliados=itens_atualizados,
                             valor_avaliado=protocolo_atualizado['valor_avaliado'],
                             codigo_rastreio=codigo_rastreio,           
-                            status_rastreio=status_rastreio_reversa    
+                            status_rastreio=status_rastreio_correios    
                         )
                 except Exception as e:
                     print(f"Erro ao processar gatilho de email de triagem: {e}")
@@ -445,7 +446,7 @@ def salvar_pericia_esteira(protocolo_id):
                     valor_avaliado=protocolo_atualizado['valor_avaliado'],
                     itens_avaliados=itens_atualizados_banco,
                     codigo_rastreio=codigo_rastreio,         
-                    status_rastreio=status_rastreio_reversa  
+                    status_rastreio=status_rastreio_correios  
                 )
 
             # REGRA 3: Email de Pagamento Efetuado com Sucesso

@@ -26,6 +26,10 @@
                 no botão Voltar e no formulário de perícia para integração com o Monitor SLA.
   - 06/07/2026: Regra de Negócio: Inclusão de precificação manual (Sob Consulta)
                 no Laudo Técnico para itens que chegam com valor_pix_base = 0.
+  - 27/07/2026: Correção de Variável: Ajuste no painel de Dados do Cliente para exibir o 
+                rótulo e a variável correta (WhatsApp / cliente_whatsapp).
+  - 27/07/2026: Ajuste de UI: Inclusão de script de máscara visual para exibição 
+                formatada do número de WhatsApp na tela de leitura.
   ==============================================================================
 #}
 
@@ -112,8 +116,10 @@
                         {% endif %}
                     </p>
                     <p style="font-size: 13px; color: #ccc; margin-top: 10px;">
-                        <i class="fas fa-phone" style="color: var(--cor-destaque); width: 16px;"></i> Telefone: 
-                        <span style="color: var(--texto-br);">{{ protocolo.cliente_telefone | default('Não informado') }}</span>
+                        <i class="fab fa-whatsapp" style="color: var(--cor-destaque); width: 16px;"></i> WhatsApp: 
+                        <span id="display-whatsapp" style="color: var(--texto-br);" data-numero="{{ protocolo.cliente_whatsapp | default('') }}">
+                            {{ protocolo.cliente_whatsapp | default('Não informado') }}
+                        </span>
                     </p>
                     <p style="font-size: 13px; color: #ccc; margin-top: 10px;">
                         <i class="fab fa-pix" style="color: var(--cor-destaque); width: 16px;"></i> Chave PIX: 
@@ -298,6 +304,19 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        
+        // --- FORMATAÇÃO VISUAL DO WHATSAPP ---
+        const displayWhatsapp = document.getElementById('display-whatsapp');
+        if (displayWhatsapp && displayWhatsapp.dataset.numero) {
+            let numStr = displayWhatsapp.dataset.numero.replace(/\D/g, '');
+            if (numStr.length === 11) {
+                displayWhatsapp.textContent = `(${numStr.substring(0, 2)}) ${numStr.substring(2, 7)}-${numStr.substring(7, 11)}`;
+            } else if (numStr.length === 10) {
+                displayWhatsapp.textContent = `(${numStr.substring(0, 2)}) ${numStr.substring(2, 6)}-${numStr.substring(6, 10)}`;
+            }
+        }
+        // -------------------------------------
+
         const selectStatus = document.getElementById('status_id');
         const containerItens = document.getElementById('container-itens');
         const itemsLote = document.querySelectorAll('.item-lote');

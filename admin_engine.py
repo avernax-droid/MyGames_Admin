@@ -57,6 +57,7 @@
 #               (whatsapp, endereço completo) e rastreio, preparando os dados para a exportação otimizada.
 # - 16/07/2026: Adição das funções enviar_email_pagamento_sucesso e enviar_email_devolucao_total para disparos transacionais da esteira.
 # - 18/07/2026: Correção na função enviar_email_status_pericia multiplicando o valor unitário pela quantidade declarada para exibição correta.
+# - 27/07/2026: Padronização de nomenclatura: Substituição de "Logística Reversa" por "Código de Rastreio".
 # ==============================================================================
 import mysql.connector
 import os
@@ -1281,7 +1282,7 @@ def consultar_historico_rastreio(codigo_rastreio):
         return [
             {"data": "26/06/2026 14:30", "local": "Unidade de Tratamento - São Paulo/SP", "status": "Objeto em trânsito - por favor aguarde"},
             {"data": "26/06/2026 10:00", "local": "Agência dos Correios - São Paulo/SP", "status": "Objeto postado pelo cliente"},
-            {"data": "25/06/2026 15:45", "local": "Sistema MyGames", "status": "Logística Reversa Gerada"}
+            {"data": "25/06/2026 15:45", "local": "Sistema MyGames", "status": "Código de Rastreio Gerado"}
         ]
 
     if not codigo_rastreio:
