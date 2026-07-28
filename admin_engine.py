@@ -58,6 +58,8 @@
 # - 16/07/2026: Adição das funções enviar_email_pagamento_sucesso e enviar_email_devolucao_total para disparos transacionais da esteira.
 # - 18/07/2026: Correção na função enviar_email_status_pericia multiplicando o valor unitário pela quantidade declarada para exibição correta.
 # - 27/07/2026: Padronização de nomenclatura: Substituição de "Logística Reversa" por "Código de Rastreio".
+# - 28/07/2026: Adição da função buscar_clientes_por_chave e inclusão de CPF e origem_lead na query obter_cabecalho_protocolo.
+# - 28/07/2026: Adição da função enviar_email_avulso_modal para envio de e-mails diretamente pelo Modal do painel.
 # ==============================================================================
 import mysql.connector
 import os
@@ -496,16 +498,61 @@ def enviar_email_devolucao_total(destinatario, nome_cliente, numero_protocolo, c
         print(f"Erro ao enviar e-mail de devolução total: {e}")
         return False
 
+def enviar_email_avulso_modal(destinatario, assunto, mensagem, numero_protocolo):
+    """
+    Envia um e-mail avulso redigido pelo operador através do Modal do Backoffice.
+    Formata as quebras de linha e injeta o remetente oficial da empresa.
+    """
+    try:
+        dados_empresa = obter_dados_empresa()
+        nome_empresa = dados_empresa['nome_fantasia'] if dados_empresa and 'nome_fantasia' in dados_empresa else "MyGames"
+
+        sender_email = os.getenv("EMAIL_USER")
+        sender_password = os.getenv("EMAIL_PASS")
+        smtp_server = os.getenv("EMAIL_HOST")
+        smtp_port = int(os.getenv("EMAIL_PORT", 587))
+        
+        # Converte quebras de linha do textarea (Enter) para <br> no HTML
+        mensagem_formatada = mensagem.replace('\n', '<br>')
+
+        corpo_html = f"""
+        <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.5;">
+            <p style="margin-bottom: 5px; color: #666; font-size: 12px;"><strong>Referência: Protocolo #{numero_protocolo}</strong></p>
+            <br>
+            <p>{mensagem_formatada}</p>
+            <br><br>
+            <p>Atenciosamente,<br>Equipe <strong>{nome_empresa}</strong></p>
+        </div>
+        """
+
+        msg = MIMEMultipart('alternative')
+        msg['From'] = formataddr((nome_empresa, sender_email))
+        msg['To'] = destinatario
+        msg['Subject'] = assunto
+        
+        msg.attach(MIMEText(corpo_html, 'html', 'utf-8'))
+
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Erro ao enviar e-mail avulso (Modal): {e}")
+        return False
+
 # [Funções de Protocolo e Esteira de Status]
 def obter_cabecalho_protocolo(protocolo_id):
     db = conectar_bd()
     if not db: return None
     try:
         cursor = db.cursor(dictionary=True)
+        # ALTERAÇÃO: Inclusão dos campos c.cpf e c.origem_lead na instrução SELECT
         query = """
             SELECT p.id, p.numero_protocolo, p.status, p.status_id, p.laudo_tecnico, p.valor_total_pix, p.valor_avaliado, p.data_criacao, p.codigo_rastreio,
                    c.nome_completo as cliente_nome, c.email as cliente_email, c.whatsapp as cliente_whatsapp, c.chave_pix,
-                   c.endereco, c.numero, c.complemento, c.bairro, c.cidade, c.estado_uf, c.cep,
+                   c.cpf, c.origem_lead, c.endereco, c.numero, c.complemento, c.bairro, c.cidade, c.estado_uf, c.cep,
                    s.nome_exibicao as status_nome, s.cor_badge, s.slug_tecnico,
                    IFNULL(
                        (SELECT MAX(data_alteracao) FROM historico_status_protocolo WHERE protocolo_id = p.id),
@@ -553,7 +600,6 @@ def obter_itens_protocolo(protocolo_id):
     if not db: return []
     try:
         cursor = db.cursor(dictionary=True)
-        # UPDATE MIGRATION: Substituição da coluna status_item para status_laudo_id
         query = """
         SELECT 
             i.id, i.qtd_declarada, i.qtd_recebida, i.status_laudo_id, i.recebido_fisicamente,
@@ -632,11 +678,9 @@ def atualizar_status_protocolo(protocolo_id, status_id, laudo_tecnico, valor_ava
                     status_laudo = item.get('status_laudo')
                     texto_laudo = item.get('texto_laudo')
                     
-                    # Converte o booleano do JSON (True/False) para o formato do banco (1/0)
                     flag_fisica = 1 if recebido else 0
                     qtd_rec = 1 if recebido else 0
                     
-                    # Hierarquia Numérica Estrita: 1 (Aprovado), 2 (Parcial), 3 (Negado). NULL se não avaliado.
                     laudo_id = None
                     if status_laudo:
                         if status_laudo == 'negado':
@@ -646,7 +690,6 @@ def atualizar_status_protocolo(protocolo_id, status_id, laudo_tecnico, valor_ava
                         elif status_laudo == 'aprovado':
                             laudo_id = 1
                     
-                    # UPDATE ATUALIZADO: Persiste o laudo_id ao invés de texto
                     query_item = """
                         UPDATE itens_periciados 
                         SET status_laudo_id = %s, 
@@ -657,7 +700,6 @@ def atualizar_status_protocolo(protocolo_id, status_id, laudo_tecnico, valor_ava
                         WHERE id = %s AND protocolo_id = %s
                     """
                     
-                    # Tratamento numérico seguro
                     v_final = float(novo_valor) if novo_valor is not None else None
                     
                     cursor.execute(query_item, (laudo_id, qtd_rec, flag_fisica, v_final, texto_laudo, id_item, protocolo_id))
@@ -718,16 +760,11 @@ def obter_protocolos_por_status(status_id):
             db.close()
 
 def obter_relatorio_sla(status_id=None, dias_parados=None, numero_protocolo=None):
-    """
-    Gera o relatório de SLA calculando dinamicamente há quantos dias o protocolo
-    está sem movimentação, filtrando por status, dias ou protocolo específico.
-    """
     db = conectar_bd()
     if not db: return []
     try:
         cursor = db.cursor(dictionary=True)
         
-        # A query cruza os protocolos com o histórico para encontrar a ÚLTIMA data de alteração
         query = """
             SELECT p.id, p.numero_protocolo, p.valor_total_pix, p.data_criacao, p.codigo_rastreio,
                    IFNULL(c.nome_completo, 'Cliente Não Vinculado') as cliente_nome, 
@@ -744,32 +781,26 @@ def obter_relatorio_sla(status_id=None, dias_parados=None, numero_protocolo=None
         
         params = []
         
-        # Filtro 1: Número do Protocolo (Busca flexível)
         if numero_protocolo:
             query += " AND p.numero_protocolo LIKE %s "
             params.append(f"%{numero_protocolo}%")
             
-        # Filtro 2: Status Específico
         if status_id:
             query += " AND p.status_id = %s "
             params.append(status_id)
         else:
-            # Se não escolheu status, oculta os finalizados (ID 9) por padrão para limpar a tela
             query += " AND (p.status_id IS NULL OR p.status_id <> 9) "
             
-        # Fechamento do agrupamento para o MAX(data_alteracao) funcionar
         query += """
             GROUP BY p.id, p.numero_protocolo, p.valor_total_pix, p.data_criacao, p.codigo_rastreio,
                      c.nome_completo, c.whatsapp, c.cep, c.endereco, c.numero, c.complemento, c.bairro, c.cidade, c.estado_uf,
                      s.nome_exibicao, s.cor_badge
         """
         
-        # Filtro 3: Dias Parados (Usa HAVING porque é aplicado APÓS o cálculo do DATEDIFF)
         if dias_parados is not None and str(dias_parados).strip() != '':
             query += " HAVING dias_no_status >= %s "
             params.append(int(dias_parados))
             
-        # Ordena os mais atrasados (maior SLA) primeiro
         query += " ORDER BY dias_no_status DESC, p.data_criacao ASC "
         
         cursor.execute(query, tuple(params))
@@ -777,6 +808,49 @@ def obter_relatorio_sla(status_id=None, dias_parados=None, numero_protocolo=None
     except mysql.connector.Error as err:
         print(f"Erro ao gerar relatório SLA: {err}")
         return []
+    finally:
+        if db and db.is_connected():
+            cursor.close()
+            db.close()
+
+# --- NOVA FUNÇÃO: BUSCA DE CLIENTES (CPF OU PROTOCOLO) ---
+def buscar_clientes_por_chave(tipo_chave, valor_busca):
+    db = conectar_bd()
+    if not db: return []
+    try:
+        cursor = db.cursor(dictionary=True)
+        
+        if tipo_chave == 'cpf':
+            # Removemos a máscara para buscar apenas pelos números na base de dados
+            cpf_limpo = re.sub(r'\D', '', str(valor_busca))
+            
+            # Buscamos pelo cliente e fazemos um LEFT JOIN com protocolos para
+            # trazer todos os protocolos que aquele CPF já abriu.
+            query = """
+                SELECT c.id as cliente_id, c.nome_completo, c.cpf, 
+                       p.id as protocolo_id, p.numero_protocolo
+                FROM clientes_usuarios c
+                LEFT JOIN protocolos_recompra p ON c.id = p.cliente_id
+                WHERE c.cpf = %s
+                ORDER BY p.data_criacao DESC
+            """
+            cursor.execute(query, (cpf_limpo,))
+            
+        elif tipo_chave == 'protocolo':
+            # Busca pelo número do protocolo exato e traz os dados do cliente dono dele
+            query = """
+                SELECT c.id as cliente_id, c.nome_completo, c.cpf, 
+                       p.id as protocolo_id, p.numero_protocolo
+                FROM protocolos_recompra p
+                INNER JOIN clientes_usuarios c ON p.cliente_id = c.id
+                WHERE p.numero_protocolo = %s
+                ORDER BY p.data_criacao DESC
+            """
+            cursor.execute(query, (valor_busca,))
+        else:
+            return []
+            
+        return cursor.fetchall()
     finally:
         if db and db.is_connected():
             cursor.close()
@@ -950,7 +1024,6 @@ def upsert_canal(canal_id, nome, ativo):
     try:
         cursor = db.cursor()
         
-        # Gerando o slug_tecnico dinamicamente (removendo acentos e espaços)
         slug = unicodedata.normalize('NFKD', nome).encode('ASCII', 'ignore').decode('utf-8')
         slug = re.sub(r'[^a-zA-Z0-9]+', '_', slug).strip('_').lower()
         
@@ -992,7 +1065,6 @@ def upsert_status(status_id, nome_exibicao, cor_badge, ativo):
     try:
         cursor = db.cursor()
         
-        # Gerando o slug_tecnico dinamicamente a partir do nome
         slug = unicodedata.normalize('NFKD', nome_exibicao).encode('ASCII', 'ignore').decode('utf-8')
         slug = re.sub(r'[^a-zA-Z0-9]+', '_', slug).strip('_').lower()
         
@@ -1178,7 +1250,6 @@ def validar_senha_atual(admin_id, senha_atual):
         cursor.execute("SELECT senha_hash FROM usuarios_admin WHERE id = %s", (admin_id,))
         usuario = cursor.fetchone()
         
-        # Verifica se o usuário existe e se a senha digitada bate com o hash salvo
         if usuario and check_password_hash(usuario['senha_hash'], senha_atual):
             return True
         return False
@@ -1194,7 +1265,6 @@ def atualizar_senha_usuario(admin_id, nova_senha):
         cursor = db.cursor()
         senha_hash = generate_password_hash(nova_senha)
         
-        # Atualiza a senha e retira a trava de segurança (requer_nova_senha = 0)
         query = """
             UPDATE usuarios_admin 
             SET senha_hash = %s, requer_nova_senha = 0 
@@ -1229,7 +1299,6 @@ def salvar_dados_empresa(dados):
     db = conectar_bd()
     if not db: return False
     try:
-        # Limpeza das máscaras antes de persistir no banco (apenas números)
         if dados.get('cnpj'):
             dados['cnpj'] = re.sub(r'\D', '', str(dados['cnpj']))
         if dados.get('cep'):
@@ -1276,7 +1345,6 @@ def consultar_historico_rastreio(codigo_rastreio):
     """
     ambiente = os.getenv('CORREIOS_AMBIENTE', 'homologacao')
     
-    # 1. Interceptador Mock (Fake) para testes locais no Admin
     if ambiente == "fake":
         logging.info(f"MODO FAKE ATIVADO: Simulando rastreio para o código {codigo_rastreio}")
         return [
@@ -1297,7 +1365,6 @@ def consultar_historico_rastreio(codigo_rastreio):
         return []
 
     try:
-        # 2. Geração do Token de Autenticação (Bearer Token)
         url_token = "https://api.correios.com.br/token/v1/autentica/cartaopostagem"
         auth_string = f"{usuario}:{senha}"
         auth_bytes = auth_string.encode("utf-8")
@@ -1318,7 +1385,6 @@ def consultar_historico_rastreio(codigo_rastreio):
             
         token = resp_token.json().get('token')
 
-        # 3. Consulta de Rastreio (SRO)
         url_sro = f"https://api.correios.com.br/sro-rastro/v1/objetos/{codigo_rastreio}?resultado=T"
         headers_sro = {
             "Authorization": f"Bearer {token}",
@@ -1331,19 +1397,17 @@ def consultar_historico_rastreio(codigo_rastreio):
             dados_sro = resp_sro.json()
             eventos_formatados = []
             
-            # O JSON retorna uma lista de objetos pesquisados. Pegamos o primeiro.
             objetos = dados_sro.get('objetos', [])
             if objetos and 'eventos' in objetos[0]:
                 eventos_crus = objetos[0]['eventos']
                 
-                # Parse dos eventos para um formato simplificado e limpo para o front-end
                 for evento in eventos_crus:
                     cidade = evento.get('unidade', {}).get('endereco', {}).get('cidade', '')
                     uf = evento.get('unidade', {}).get('endereco', {}).get('uf', '')
                     local = f"{cidade}/{uf}" if cidade and uf else evento.get('unidade', {}).get('nome', 'Local não informado')
                     
                     eventos_formatados.append({
-                        "data": evento.get('dtHrCriado', '').replace('T', ' ')[:16], # Formata Data e Hora
+                        "data": evento.get('dtHrCriado', '').replace('T', ' ')[:16],
                         "local": local,
                         "status": evento.get('descricao', 'Status Indefinido')
                     })

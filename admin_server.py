@@ -40,6 +40,8 @@
 # - 16/07/2026: Adição da Trava de Segurança para impedir edição de protocolos encerrados (ID 9).
 # - 16/07/2026: Adição de Exceção (Silêncio) para não disparar e-mail no status de Devolução Parcial de Produtos.
 # - 27/07/2026: Padronização de nomenclatura: Substituição de variáveis e comentários de "Logística Reversa" para "Código de Rastreio".
+# - 28/07/2026: Implementação das rotas /clientes e /clientes/<id> para a nova funcionalidade de Consulta de Clientes.
+# - 28/07/2026: Adição da rota /api/enviar_email_avulso para envio de e-mails via Modal (AJAX).
 # ==============================================================================
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify, make_response
@@ -248,6 +250,70 @@ def mudar_senha():
 def dashboard():
     if 'admin_id' not in session: return redirect(url_for('login'))
     return render_template('dashboard.html')
+
+# --- ROTAS: CONSULTA DE CLIENTES ---
+@app.route('/clientes', methods=['GET', 'POST'])
+@requer_permissao('protocolos', 'read')
+def consultar_clientes():
+    resultados = None
+    if request.method == 'POST':
+        tipo_chave = request.form.get('tipo_chave')
+        valor_busca = request.form.get('valor_busca')
+        
+        if not tipo_chave or not valor_busca:
+            flash('Informe o tipo de chave e o valor para pesquisar.', 'error')
+        else:
+            resultados = admin_engine.buscar_clientes_por_chave(tipo_chave, valor_busca)
+            
+    return render_template('consultar_clientes.html', resultados=resultados)
+
+@app.route('/clientes/<int:cliente_id>/<int:protocolo_id>')
+@requer_permissao('protocolos', 'read')
+def detalhes_cliente(cliente_id, protocolo_id):
+    dados_protocolo = admin_engine.obter_cabecalho_protocolo(protocolo_id)
+    
+    if not dados_protocolo:
+        flash('Registro não encontrado.', 'error')
+        return redirect(url_for('consultar_clientes'))
+        
+    itens_protocolo = admin_engine.obter_itens_protocolo(protocolo_id)
+    
+    # Renderizamos a tela passando 'dados_protocolo' também como 'cliente'
+    # já que ambas as informações (cliente e protocolo) vêm na mesma estrutura do cabecalho
+    return render_template('detalhes_cliente.html', 
+                           cliente=dados_protocolo, 
+                           protocolo=dados_protocolo, 
+                           itens=itens_protocolo)
+
+@app.route('/api/enviar_email_avulso', methods=['POST'])
+@requer_permissao('protocolos', 'update')
+def api_enviar_email_avulso():
+    """
+    Recebe os dados do Modal de E-mail (via AJAX) e dispara pelo motor.
+    """
+    try:
+        dados = request.get_json()
+        if not dados:
+            return jsonify({'sucesso': False, 'erro': 'Dados não fornecidos.'}), 400
+            
+        destinatario = dados.get('email_destino')
+        assunto = dados.get('assunto')
+        mensagem = dados.get('mensagem')
+        protocolo = dados.get('protocolo')
+        
+        if not all([destinatario, assunto, mensagem, protocolo]):
+            return jsonify({'sucesso': False, 'erro': 'Preencha todos os campos do formulário.'}), 400
+            
+        sucesso = admin_engine.enviar_email_avulso_modal(destinatario, assunto, mensagem, protocolo)
+        
+        if sucesso:
+            return jsonify({'sucesso': True}), 200
+        else:
+            return jsonify({'sucesso': False, 'erro': 'Falha na comunicação com o servidor de e-mail (SMTP).'}), 500
+            
+    except Exception as e:
+        return jsonify({'sucesso': False, 'erro': str(e)}), 500
+
 
 @app.route('/protocolos')
 @requer_permissao('protocolos', 'read')

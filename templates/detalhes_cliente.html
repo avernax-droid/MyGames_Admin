@@ -1,0 +1,358 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: detalhes_cliente.html
+  DATA DE CRIAÇÃO: 28/07/2026
+  TÍTULO: Detalhes do Cliente e Protocolo
+  FUNÇÃO: Exibir o card completo do cliente, incluindo dados cadastrais, resumo financeiro do protocolo e itens periciados.
+  HISTÓRICO DE ALTERAÇÕES:
+  - 28/07/2026: Criação da interface detalhada do cliente integrada à pesquisa central.
+  - 28/07/2026: Correção de UX (Botão Voltar via JS History, Abertura de Protocolo em Nova Aba, Fallback de E-mail).
+  - 28/07/2026: Remoção do atalho "Ir para a Perícia" para manter o escopo estrito de consulta.
+  - 28/07/2026: Inclusão de máscara visual no WhatsApp, realocação do botão "Voltar" e forçamento da URL web.whatsapp.com.
+  - 28/07/2026: Ajuste da Origem do Lead para exibir o dado exato do banco ou "Não informada".
+  - 28/07/2026: Substituição do protocolo mailto: por janela Modal nativa (AJAX) para envio de e-mail integrado ao servidor.
+  - 28/07/2026: Atualização do link do WhatsApp para o protocolo nativo whatsapp:// para impedir a abertura de abas residuais no navegador.
+  ==============================================================================
+#}
+{% extends "base.html" %}
+
+{% block title %}Detalhes do Cliente - Admin MyGames{% endblock %}
+{% block page_title %}Ficha do Cliente: {{ cliente.cliente_nome }}{% endblock %}
+
+{% block content %}
+<style>
+    /* Estilos do Layout de Grid e Cards */
+    .grid-detalhes { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; }
+    
+    .info-card { background: var(--bg-card); border: var(--borda-fina); border-radius: 12px; padding: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; flex-direction: column; }
+    .info-card h3 { font-size: 16px; margin-top: 0; margin-bottom: 20px; color: var(--cor-destaque); border-bottom: 1px solid #333; padding-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+    
+    .info-linha { display: flex; margin-bottom: 12px; font-size: 14px; line-height: 1.5; }
+    .info-linha strong { color: var(--texto-dim); width: 140px; flex-shrink: 0; }
+    .info-linha span { color: var(--texto-br); word-break: break-word; }
+
+    /* Estilos da Tabela de Produtos */
+    .tabela-produtos { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
+    .tabela-produtos th { text-align: left; padding: 12px; background: #222; border-bottom: 2px solid var(--cor-destaque); color: var(--texto-br); font-weight: 600; }
+    .tabela-produtos td { padding: 12px; border-bottom: 1px solid #333; color: var(--texto-br); }
+    .tabela-produtos tr:hover { background: rgba(255, 255, 255, 0.02); }
+    
+    /* Estilos de Badges (Pílulas de Status) */
+    .badge { padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; text-align: center; }
+    .badge-pendente { background: rgba(255, 193, 7, 0.1); color: #ffc107; border: 1px solid rgba(255, 193, 7, 0.3); }
+    .badge-aprovado { background: rgba(0, 230, 118, 0.1); color: var(--cor-destaque); border: 1px solid rgba(0, 230, 118, 0.3); }
+    .badge-parcial { background: rgba(253, 126, 20, 0.1); color: #fd7e14; border: 1px solid rgba(253, 126, 20, 0.3); }
+    .badge-reprovado { background: rgba(220, 53, 69, 0.1); color: #dc3545; border: 1px solid rgba(220, 53, 69, 0.3); }
+
+    /* Botões de Ação Rápida e Voltar */
+    .acoes-rapidas { padding: 12px 15px; background: #111; border-radius: 8px; border: var(--borda-fina); display: inline-block; }
+    .acoes-rapidas strong { color: var(--texto-dim); display: block; margin-bottom: 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .btn-acao-link { color: var(--cor-destaque); text-decoration: none; font-size: 14px; margin-right: 15px; display: inline-flex; align-items: center; gap: 6px; transition: 0.3s; cursor: pointer; border: none; background: transparent; padding: 0;}
+    .btn-acao-link:hover { color: #fff; }
+    
+    .btn-secundario { background: transparent; color: var(--texto-br); border: 1px solid #555; padding: 10px 20px; border-radius: 6px; cursor: pointer; transition: 0.3s; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
+    .btn-secundario:hover { background: #333; }
+    .btn-primary { background: var(--cor-destaque); color: #000; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; transition: 0.3s; font-size: 14px; font-weight: bold; }
+    .btn-primary:hover { background: #00b359; }
+    .btn-primary:disabled { opacity: 0.7; cursor: not-allowed; }
+
+    /* Estilos do Modal de E-mail */
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-box { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; width: 100%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; flex-direction: column; }
+    .modal-header { padding: 15px 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+    .modal-header h4 { margin: 0; color: var(--cor-destaque); font-size: 16px; }
+    .btn-fechar { background: none; border: none; color: #888; font-size: 20px; cursor: pointer; transition: 0.2s; }
+    .btn-fechar:hover { color: #fff; }
+    
+    .modal-body { padding: 20px; }
+    .form-group { margin-bottom: 15px; display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 13px; color: var(--texto-dim); font-weight: bold; }
+    .form-group input, .form-group textarea { background: #111; border: 1px solid #444; color: #fff; padding: 12px; border-radius: 6px; font-family: inherit; font-size: 14px; }
+    .form-group input:focus, .form-group textarea:focus { outline: none; border-color: var(--cor-destaque); }
+    .form-group textarea { resize: vertical; min-height: 100px; }
+    
+    .modal-footer { padding: 15px 20px; border-top: 1px solid #333; display: flex; justify-content: flex-end; gap: 10px; }
+    .feedback-msg { font-size: 13px; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: none; }
+</style>
+
+<div class="grid-detalhes">
+    <!-- Bloco 1: Dados Cadastrais -->
+    <div class="info-card">
+        <h3><i class="fas fa-address-card"></i> Dados Cadastrais</h3>
+        <div class="info-linha"><strong>Nome:</strong> <span>{{ cliente.cliente_nome }}</span></div>
+        <div class="info-linha"><strong>CPF:</strong> <span>{{ cliente.cpf }}</span></div>
+        <div class="info-linha"><strong>E-mail:</strong> <span id="email-cliente">{{ cliente.cliente_email }}</span></div>
+        
+        <!-- Lógica Jinja para aplicar a máscara no WhatsApp -->
+        <div class="info-linha">
+            <strong>WhatsApp:</strong> 
+            <span>
+                {% set fone_str = cliente.cliente_whatsapp | string %}
+                {% if fone_str|length == 11 %}
+                    ({{ fone_str[:2] }}) {{ fone_str[2:7] }}-{{ fone_str[7:] }}
+                {% elif fone_str|length == 10 %}
+                    ({{ fone_str[:2] }}) {{ fone_str[2:6] }}-{{ fone_str[6:] }}
+                {% else %}
+                    {{ fone_str }}
+                {% endif %}
+            </span>
+        </div>
+        
+        <div class="info-linha">
+            <strong>Endereço:</strong> 
+            <span>
+                {{ cliente.endereco }}, {{ cliente.numero }} 
+                {% if cliente.complemento %} - {{ cliente.complemento }}{% endif %}<br>
+                {{ cliente.bairro }}<br>
+                CEP: {{ cliente.cep }}
+            </span>
+        </div>
+        <div class="info-linha"><strong>Cidade/UF:</strong> <span>{{ cliente.cidade }} / {{ cliente.estado_uf }}</span></div>
+        <div class="info-linha"><strong>Chave PIX:</strong> <span>{{ cliente.chave_pix if cliente.chave_pix else 'Não informada' }}</span></div>
+        <div class="info-linha"><strong>Origem do Lead:</strong> <span>{{ cliente.origem_lead if cliente.origem_lead else 'Não informada' }}</span></div>
+    </div>
+
+    <!-- Bloco 2: Resumo do Protocolo -->
+    <div class="info-card">
+        <h3><i class="fas fa-file-invoice"></i> Resumo do Protocolo: {{ protocolo.numero_protocolo }}</h3>
+        
+        <div class="info-linha">
+            <strong>Status Atual:</strong> 
+            <span>
+                {% if protocolo.cor_badge %}
+                    <span class="badge" style="background: {{ protocolo.cor_badge }}20; color: {{ protocolo.cor_badge }}; border: 1px solid {{ protocolo.cor_badge }}50;">
+                        {{ protocolo.status_nome }}
+                    </span>
+                {% else %}
+                    <span class="badge badge-pendente">{{ protocolo.status_nome if protocolo.status_nome else 'Indefinido' }}</span>
+                {% endif %}
+            </span>
+        </div>
+        
+        <div class="info-linha"><strong>Abertura:</strong> <span>{{ protocolo.data_criacao.strftime('%d/%m/%Y às %H:%M') if protocolo.data_criacao else '-' }}</span></div>
+        <div class="info-linha"><strong>Última Movimentação:</strong> <span>{{ protocolo.data_status_atual.strftime('%d/%m/%Y às %H:%M') if protocolo.data_status_atual else '-' }}</span></div>
+        
+        <div class="info-linha">
+            <strong>Valor Ofertado:</strong> 
+            <span>
+                R$ {{ "%.2f"|format(protocolo.valor_total_pix|default(0.0, true)) }}
+            </span>
+        </div>
+        
+        <div class="info-linha">
+            <strong>Valor Avaliado (Final):</strong> 
+            <span>
+                {% if protocolo.valor_avaliado %}
+                    <strong style="color: var(--cor-destaque);">R$ {{ "%.2f"|format(protocolo.valor_avaliado) }}</strong>
+                {% else %}
+                    Pendente de Perícia
+                {% endif %}
+            </span>
+        </div>
+        
+        <div class="info-linha">
+            <strong>Rastreio (Correios):</strong> 
+            <span>{{ protocolo.codigo_rastreio if protocolo.codigo_rastreio else 'Aguardando postagem/código' }}</span>
+        </div>
+        
+        <!-- Rodapé do Card com Ações e Botão Voltar lado a lado -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: auto; padding-top: 15px;">
+            <div class="acoes-rapidas">
+                <strong>Ações Rápidas</strong>
+                {% if cliente.cliente_whatsapp %}
+                    {% set fone = cliente.cliente_whatsapp|replace('(','')|replace(')','')|replace('-','')|replace(' ','') %}
+                    <!-- Atualizado para o protocolo nativo whatsapp:// sem o target="_blank" -->
+                    <a href="whatsapp://send?phone=55{{ fone }}&text=Olá, {{ cliente.cliente_nome }}! Falamos da MyGames sobre o protocolo {{ protocolo.numero_protocolo }}." class="btn-acao-link">
+                        <i class="fab fa-whatsapp"></i> WhatsApp
+                    </a>
+                {% endif %}
+                
+                {% if cliente.cliente_email %}
+                    <!-- Botão alterado para acionar o Modal de E-mail Interno -->
+                    <button type="button" class="btn-acao-link" onclick="abrirModalEmail()">
+                        <i class="fas fa-envelope"></i> Enviar E-mail
+                    </button>
+                {% endif %}
+            </div>
+
+            <a href="javascript:history.back()" class="btn-secundario">
+                <i class="fas fa-arrow-left"></i> Voltar
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Bloco 3: Itens Periciados da Venda -->
+<div class="info-card" style="margin-bottom: 30px;">
+    <h3><i class="fas fa-box-open"></i> Produtos do Lote (Itens Periciados)</h3>
+    
+    <div style="overflow-x: auto;">
+        <table class="tabela-produtos">
+            <thead>
+                <tr>
+                    <th>Produto / Categoria</th>
+                    <th style="text-align: center;">Qtd. Declarada</th>
+                    <th style="text-align: center;">Qtd. Recebida</th>
+                    <th>Valor Ofertado (Un.)</th>
+                    <th>Valor Avaliado (Final)</th>
+                    <th>Status do Laudo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in itens %}
+                <tr>
+                    <td>
+                        <strong>{{ item.nome_produto if item.nome_produto else 'Produto Customizado' }}</strong><br>
+                        <span style="font-size: 12px; color: var(--texto-dim);">{{ item.categoria if item.categoria else 'Sem categoria' }}</span>
+                    </td>
+                    <td style="text-align: center;">{{ item.qtd_declarada }}</td>
+                    <td style="text-align: center;">
+                        {% if item.qtd_recebida is not none %}
+                            {{ item.qtd_recebida }}
+                        {% else %}
+                            <span style="color: var(--texto-dim);">-</span>
+                        {% endif %}
+                    </td>
+                    <td>R$ {{ "%.2f"|format(item.valor_pix_unitario|default(0.0, true)) }}</td>
+                    <td>
+                        {% if item.valor_final_pix is not none %}
+                            R$ {{ "%.2f"|format(item.valor_final_pix) }}
+                        {% else %}
+                            <span style="color: var(--texto-dim);">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item.recebido_fisicamente == 0 %}
+                            <span class="badge badge-reprovado">Não Recebido</span>
+                        {% elif item.status_laudo_id == 1 %}
+                            <span class="badge badge-aprovado">Aprovado</span>
+                        {% elif item.status_laudo_id == 2 %}
+                            <span class="badge badge-parcial">Aprovação Parcial</span>
+                        {% elif item.status_laudo_id == 3 %}
+                            <span class="badge badge-reprovado">Reprovado</span>
+                        {% else %}
+                            <span class="badge badge-pendente">Aguardando Avaliação</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" style="text-align: center; color: var(--texto-dim); padding: 30px;">
+                        <i class="fas fa-ghost" style="font-size: 24px; margin-bottom: 10px; display: block; opacity: 0.5;"></i>
+                        Nenhum produto atrelado a este protocolo no momento.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ============================================================================== -->
+<!-- MODAL DE ENVIO DE E-MAIL (SISTEMA INTERNO)                                     -->
+<!-- ============================================================================== -->
+<div id="modalEmail" class="modal-overlay" style="display: none;">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h4><i class="fas fa-envelope"></i> Enviar E-mail para Cliente</h4>
+            <button class="btn-fechar" onclick="fecharModalEmail()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="emailFeedback" class="feedback-msg"></div>
+            
+            <form id="formEnviarEmail" onsubmit="enviarEmailAjax(event)">
+                <input type="hidden" id="emailDestino" value="{{ cliente.cliente_email }}">
+                
+                <div class="form-group">
+                    <label>Para:</label>
+                    <input type="text" value="{{ cliente.cliente_nome }} ({{ cliente.cliente_email }})" disabled style="background: #222; color: #888;">
+                </div>
+                
+                <div class="form-group">
+                    <label>Assunto:</label>
+                    <input type="text" id="emailAssunto" value="Atualização Protocolo MyGames #{{ protocolo.numero_protocolo }}" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Mensagem:</label>
+                    <textarea id="emailMensagem" placeholder="Digite sua mensagem aqui..." required></textarea>
+                </div>
+                
+                <div class="modal-footer" style="padding: 15px 0 0 0; margin-top: 10px; border-top: none;">
+                    <button type="button" class="btn-secundario" onclick="fecharModalEmail()">Cancelar</button>
+                    <button type="submit" class="btn-primary" id="btnSubmitEmail">
+                        <i class="fas fa-paper-plane"></i> Enviar E-mail
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    function abrirModalEmail() {
+        document.getElementById('modalEmail').style.display = 'flex';
+    }
+
+    function fecharModalEmail() {
+        document.getElementById('modalEmail').style.display = 'none';
+        document.getElementById('emailFeedback').style.display = 'none';
+        document.getElementById('formEnviarEmail').reset();
+    }
+
+    async function enviarEmailAjax(e) {
+        e.preventDefault();
+        
+        const btn = document.getElementById('btnSubmitEmail');
+        const feedback = document.getElementById('emailFeedback');
+        const assunto = document.getElementById('emailAssunto').value;
+        const mensagem = document.getElementById('emailMensagem').value;
+        const destino = document.getElementById('emailDestino').value;
+
+        // Estado de Loading
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+        feedback.style.display = 'none';
+
+        try {
+            // Chamada à futura rota no admin_server.py
+            const response = await fetch('/api/enviar_email_avulso', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email_destino: destino,
+                    assunto: assunto,
+                    mensagem: mensagem,
+                    protocolo: '{{ protocolo.numero_protocolo }}'
+                })
+            });
+
+            const data = await response.json();
+            
+            if (response.ok && data.sucesso) {
+                feedback.style.background = 'rgba(0, 230, 118, 0.1)';
+                feedback.style.border = '1px solid #00e676';
+                feedback.style.color = '#00e676';
+                feedback.innerHTML = '<i class="fas fa-check-circle"></i> E-mail enviado com sucesso!';
+                feedback.style.display = 'block';
+                
+                // Fecha o modal automaticamente após o sucesso
+                setTimeout(fecharModalEmail, 2000);
+            } else {
+                throw new Error(data.erro || 'Ocorreu um erro ao enviar o e-mail.');
+            }
+        } catch (error) {
+            feedback.style.background = 'rgba(220, 53, 69, 0.1)';
+            feedback.style.border = '1px solid #dc3545';
+            feedback.style.color = '#dc3545';
+            feedback.innerHTML = '<i class="fas fa-exclamation-triangle"></i> ' + error.message;
+            feedback.style.display = 'block';
+        } finally {
+            // Restaura o botão
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar E-mail';
+        }
+    }
+</script>
+{% endblock %}

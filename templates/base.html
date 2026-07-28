@@ -13,6 +13,7 @@
   - 15/06/2026: Correção do menu "Opções de Estado" para expandir subcategorias em 3º nível diretamente na Sidebar e adição de scripts correspondentes.
   - 15/06/2026: Inclusão do link "Dados da Empresa" no submenu de Configurações e atualização da validação de rotas ativas.
   - 05/07/2026: Inclusão do link para a nova tela de Monitor de SLA na Sidebar principal.
+  - 28/07/2026: Inclusão do menu 'Clientes' na Sidebar principal para acesso à nova tela de consulta.
   ==============================================================================
 #}
 <!DOCTYPE html>
@@ -122,6 +123,10 @@
 
             <a href="{{ url_for('dashboard') }}" class="menu-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
                 <i class="fas fa-chart-line"></i> Dashboard
+            </a>
+            
+            <a href="{{ url_for('consultar_clientes') }}" class="menu-item {% if request.endpoint == 'consultar_clientes' or request.endpoint == 'detalhes_cliente' %}active{% endif %}">
+                <i class="fas fa-users"></i> Clientes
             </a>
             
             <a href="{{ url_for('listar_protocolos') }}" class="menu-item {% if request.endpoint == 'listar_protocolos' %}active{% endif %}">

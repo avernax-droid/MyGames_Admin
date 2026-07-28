@@ -1,0 +1,174 @@
+{# 
+  ==============================================================================
+  PROJETO: MyGames - Backoffice
+  MÓDULO: consultar_clientes.html
+  DATA DE CRIAÇÃO: 28/07/2026
+  TÍTULO: Tela de Consulta de Clientes
+  FUNÇÃO: Interface para buscar clientes por CPF ou número de protocolo e exibir a listagem de resultados.
+  HISTÓRICO DE ALTERAÇÕES:
+  - 28/07/2026: Criação da interface com modal nativo de pesquisa e listagem de resultados.
+  - 28/07/2026: Ajuste de UX: Gatilho automático para exibir o modal no primeiro acesso.
+  ==============================================================================
+#}
+{% extends "base.html" %}
+
+{% block title %}Consulta de Clientes - Admin MyGames{% endblock %}
+{% block page_title %}Consulta de Clientes{% endblock %}
+
+{% block content %}
+<style>
+    /* Estilos para Botões e Tabelas */
+    .btn-acao { background: var(--cor-destaque); color: #000; padding: 10px 20px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.3s; text-decoration: none; display: inline-block; font-size: 14px; }
+    .btn-acao:hover { background: #00c853; }
+    .btn-secundario { background: transparent; color: var(--texto-br); border: 1px solid #555; padding: 10px 20px; border-radius: 6px; cursor: pointer; transition: 0.3s; font-size: 14px; }
+    .btn-secundario:hover { background: #333; }
+    
+    .table-admin { width: 100%; border-collapse: collapse; margin-top: 20px; color: var(--texto-br); text-align: left; }
+    .table-admin th { background: #222; padding: 15px; border-bottom: 2px solid var(--cor-destaque); font-weight: 600; font-size: 14px; }
+    .table-admin td { padding: 15px; border-bottom: var(--borda-fina); font-size: 14px; }
+    .table-admin tr:hover { background: rgba(255, 255, 255, 0.02); }
+    
+    .btn-detalhe { color: var(--cor-destaque); text-decoration: none; font-size: 18px; transition: 0.3s; }
+    .btn-detalhe:hover { color: #fff; }
+
+    /* Estilos do Modal Overlay */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center; }
+    .modal-overlay.active { display: flex; }
+    .modal-content { background: var(--bg-card); border: var(--borda-fina); border-radius: 12px; width: 100%; max-width: 450px; padding: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; border-bottom: 1px solid #333; padding-bottom: 15px; }
+    .modal-header h3 { font-size: 20px; font-weight: 600; color: var(--texto-br); margin: 0; }
+    .modal-close { background: none; border: none; color: var(--texto-dim); font-size: 20px; cursor: pointer; transition: 0.3s; }
+    .modal-close:hover { color: var(--texto-br); }
+    
+    /* Formulário de Busca */
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; margin-bottom: 10px; color: var(--texto-dim); font-size: 14px; }
+    
+    .radio-group { display: flex; gap: 20px; margin-bottom: 15px; }
+    .radio-group label { cursor: pointer; color: var(--texto-br); font-size: 15px; display: flex; align-items: center; gap: 8px; }
+    .radio-group input[type="radio"] { accent-color: var(--cor-destaque); transform: scale(1.2); }
+    
+    .input-admin { width: 100%; padding: 14px; background: #111; border: var(--borda-fina); color: var(--texto-br); border-radius: 6px; outline: none; font-size: 15px; }
+    .input-admin:focus { border-color: var(--cor-destaque); box-shadow: 0 0 5px rgba(0, 230, 118, 0.3); }
+    
+    /* Empty State */
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--texto-dim); }
+    .empty-state i { font-size: 45px; margin-bottom: 20px; opacity: 0.4; }
+    .empty-state p { font-size: 15px; margin: 5px 0; }
+</style>
+
+<div class="card-admin">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2 style="font-size: 18px; font-weight: 500; color: var(--texto-br);">Resultados da Pesquisa</h2>
+        <button class="btn-acao" onclick="abrirModalPesquisa()"><i class="fas fa-search"></i> Nova Pesquisa</button>
+    </div>
+
+    {% if resultados %}
+        <table class="table-admin">
+            <thead>
+                <tr>
+                    <th>Nome do Cliente</th>
+                    <th>CPF</th>
+                    <th>Protocolo</th>
+                    <th style="text-align: center;">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in resultados %}
+                <tr>
+                    <td>{{ r.nome_completo }}</td>
+                    <td>{{ r.cpf }}</td>
+                    <td><strong style="color: var(--cor-destaque);">{{ r.numero_protocolo }}</strong></td>
+                    <td style="text-align: center;">
+                        <a href="{{ url_for('detalhes_cliente', cliente_id=r.cliente_id, protocolo_id=r.protocolo_id) }}" class="btn-detalhe" title="Ver Detalhes Completos">
+                            <i class="fas fa-eye"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% elif request.method == 'POST' %}
+        <div class="empty-state">
+            <i class="fas fa-search-minus"></i>
+            <p>Nenhum registro encontrado para a chave informada.</p>
+            <p style="font-size: 13px;">Tente pesquisar com outro CPF ou número de Protocolo.</p>
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <i class="fas fa-users"></i>
+            <p>Utilize a pesquisa para localizar os dados de um cliente e seus protocolos vinculados.</p>
+            <p style="font-size: 13px;">Clique em "Nova Pesquisa" para começar.</p>
+        </div>
+    {% endif %}
+</div>
+
+<!-- Modal de Pesquisa -->
+<div class="modal-overlay" id="modalPesquisa">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Buscar Cliente</h3>
+            <button class="modal-close" onclick="fecharModalPesquisa()" type="button"><i class="fas fa-times"></i></button>
+        </div>
+        <form action="{{ url_for('consultar_clientes') }}" method="POST">
+            <div class="form-group">
+                <label>Selecione o tipo de chave de busca:</label>
+                <div class="radio-group">
+                    <label>
+                        <input type="radio" name="tipo_chave" value="cpf" checked onclick="atualizarPlaceholderBusca('Digite o CPF (apenas números)')"> 
+                        CPF
+                    </label>
+                    <label>
+                        <input type="radio" name="tipo_chave" value="protocolo" onclick="atualizarPlaceholderBusca('Digite o Número do Protocolo')"> 
+                        Protocolo
+                    </label>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <input type="text" name="valor_busca" id="inputValorBusca" class="input-admin" placeholder="Digite o CPF (apenas números)" required autocomplete="off">
+            </div>
+            
+            <div style="display: flex; justify-content: flex-end; gap: 15px; margin-top: 10px;">
+                <button type="button" class="btn-secundario" onclick="fecharModalPesquisa()">Cancelar</button>
+                <button type="submit" class="btn-acao">Pesquisar <i class="fas fa-arrow-right" style="margin-left: 5px; font-size: 12px;"></i></button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    function abrirModalPesquisa() { 
+        document.getElementById('modalPesquisa').classList.add('active'); 
+        setTimeout(() => {
+            document.getElementById('inputValorBusca').focus(); 
+        }, 100);
+    }
+    
+    function fecharModalPesquisa() { 
+        document.getElementById('modalPesquisa').classList.remove('active'); 
+    }
+    
+    function atualizarPlaceholderBusca(texto) { 
+        const inputBusca = document.getElementById('inputValorBusca');
+        inputBusca.placeholder = texto; 
+        inputBusca.value = ''; // Limpa o input ao trocar a chave
+        inputBusca.focus();
+    }
+    
+    // Fechar modal ao clicar fora dele
+    document.getElementById('modalPesquisa').addEventListener('click', function(e) {
+        if (e.target === this) {
+            fecharModalPesquisa();
+        }
+    });
+
+    // Gatilho para abrir o modal automaticamente ao entrar na tela pela primeira vez
+    {% if request.method == 'GET' and not resultados %}
+    document.addEventListener('DOMContentLoaded', function() {
+        abrirModalPesquisa();
+    });
+    {% endif %}
+</script>
+{% endblock %}
