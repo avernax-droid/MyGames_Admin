@@ -42,6 +42,7 @@
 # - 27/07/2026: Padronização de nomenclatura: Substituição de variáveis e comentários de "Logística Reversa" para "Código de Rastreio".
 # - 28/07/2026: Implementação das rotas /clientes e /clientes/<id> para a nova funcionalidade de Consulta de Clientes.
 # - 28/07/2026: Adição da rota /api/enviar_email_avulso para envio de e-mails via Modal (AJAX).
+# - 20/10/2026: Adição da rota de webhook /api/webhook/agente/cancelar_protocolo para o Fluxo C (Agente WhatsApp).
 # ==============================================================================
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify, make_response
@@ -1063,6 +1064,47 @@ def logout():
 def servir_midia_externa(filename):
     diretorio_fotos = os.getenv("DIRETORIO_UPLOADS_PERICIA")
     return send_from_directory(diretorio_fotos, filename)
+
+# --- INTEGRAÇÃO AGENTE WHATSAPP (FLUXO C) ---
+@app.route('/api/webhook/agente/cancelar_protocolo', methods=['POST'])
+def webhook_agente_cancelar():
+    """
+    Recebe o webhook do Agente de WhatsApp (Gatilho C) para cancelar um protocolo.
+    Acesso restrito através de autenticação Bearer Token via header.
+    """
+    # 1. Validação de Segurança (Bearer Token)
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'erro': 'Acesso negado: Token de autorizacao ausente ou mal formatado.'}), 401
+        
+    token_recebido = auth_header.split(" ")[1]
+    token_esperado = os.getenv('AGENTE_API_TOKEN')
+    
+    if not token_esperado or token_recebido != token_esperado:
+        return jsonify({'erro': 'Acesso negado: Token invalido.'}), 401
+
+    # 2. Leitura e validação do Payload (JSON)
+    if not request.is_json:
+        return jsonify({'erro': 'O corpo da requisicao deve estar no formato JSON.'}), 400
+        
+    dados = request.get_json()
+    evento = dados.get('evento')
+    protocolo = dados.get('protocolo')
+    motivo = dados.get('motivo', 'Motivo não informado')
+    
+    if evento != 'cancelar_protocolo':
+        return jsonify({'erro': 'Evento invalido. Esperado "cancelar_protocolo".'}), 400
+        
+    if not protocolo:
+        return jsonify({'erro': 'O numero do protocolo e obrigatorio.'}), 400
+        
+    # 3. Processamento na Base de Dados
+    sucesso, mensagem = admin_engine.cancelar_protocolo_agente(protocolo, motivo)
+    
+    if sucesso:
+        return jsonify({'sucesso': True, 'mensagem': mensagem}), 200
+    else:
+        return jsonify({'sucesso': False, 'erro': mensagem}), 400
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=(os.getenv("FLASK_DEBUG") == "1"), port=int(os.getenv("PORTA_FLASK", 5002)))

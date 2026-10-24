@@ -60,6 +60,7 @@
 # - 27/07/2026: Padronização de nomenclatura: Substituição de "Logística Reversa" por "Código de Rastreio".
 # - 28/07/2026: Adição da função buscar_clientes_por_chave e inclusão de CPF e origem_lead na query obter_cabecalho_protocolo.
 # - 28/07/2026: Adição da função enviar_email_avulso_modal para envio de e-mails diretamente pelo Modal do painel.
+# - 20/10/2026: Adição da função cancelar_protocolo_agente para integração do Gatilho C (Agente WhatsApp).
 # ==============================================================================
 import mysql.connector
 import os
@@ -1086,49 +1087,6 @@ def upsert_status(status_id, nome_exibicao, cor_badge, ativo):
             cursor.close()
             db.close()
 
-# [Funções de Gestão de Opções de Estado]
-def obter_opcoes_estado(categoria_id):
-    db = conectar_bd()
-    if not db: return []
-    try:
-        cursor = db.cursor(dictionary=True)
-        query = "SELECT * FROM opcoes_estado WHERE categoria_id = %s ORDER BY id ASC"
-        cursor.execute(query, (categoria_id,))
-        return cursor.fetchall()
-    finally:
-        if db and db.is_connected():
-            cursor.close()
-            db.close()
-
-def upsert_opcao_estado(id, cat_id, descricao, dep, extra):
-    db = conectar_bd()
-    if not db: return False
-    try:
-        cursor = db.cursor()
-        if id:
-            query = """
-                UPDATE opcoes_estado 
-                SET descricao = %s, fator_depreciacao = %s, valor_fixo_extra = %s 
-                WHERE id = %s
-            """
-            cursor.execute(query, (descricao, dep, extra, id))
-        else:
-            query = """
-                INSERT INTO opcoes_estado (categoria_id, descricao, fator_depreciacao, valor_fixo_extra) 
-                VALUES (%s, %s, %s, %s)
-            """
-            cursor.execute(query, (cat_id, descricao, dep, extra))
-        db.commit()
-        return True
-    except mysql.connector.Error as err:
-        print(f"Erro ao salvar opção de estado: {err}")
-        db.rollback()
-        return False
-    finally:
-        if db and db.is_connected():
-            cursor.close()
-            db.close()
-
 # [Funções de Gestão de Perguntas de Conservação]
 def obter_todas_perguntas():
     db = conectar_bd()
@@ -1174,6 +1132,49 @@ def upsert_pergunta(perg_id, texto, categoria_id, tipo, impacto):
         return True
     except Exception as e:
         print(f"Erro no upsert da pergunta: {e}")
+        db.rollback()
+        return False
+    finally:
+        if db and db.is_connected():
+            cursor.close()
+            db.close()
+
+# [Funções de Gestão de Opções de Estado]
+def obter_opcoes_estado(categoria_id):
+    db = conectar_bd()
+    if not db: return []
+    try:
+        cursor = db.cursor(dictionary=True)
+        query = "SELECT * FROM opcoes_estado WHERE categoria_id = %s ORDER BY id ASC"
+        cursor.execute(query, (categoria_id,))
+        return cursor.fetchall()
+    finally:
+        if db and db.is_connected():
+            cursor.close()
+            db.close()
+
+def upsert_opcao_estado(id, cat_id, descricao, dep, extra):
+    db = conectar_bd()
+    if not db: return False
+    try:
+        cursor = db.cursor()
+        if id:
+            query = """
+                UPDATE opcoes_estado 
+                SET descricao = %s, fator_depreciacao = %s, valor_fixo_extra = %s 
+                WHERE id = %s
+            """
+            cursor.execute(query, (descricao, dep, extra, id))
+        else:
+            query = """
+                INSERT INTO opcoes_estado (categoria_id, descricao, fator_depreciacao, valor_fixo_extra) 
+                VALUES (%s, %s, %s, %s)
+            """
+            cursor.execute(query, (cat_id, descricao, dep, extra))
+        db.commit()
+        return True
+    except mysql.connector.Error as err:
+        print(f"Erro ao salvar opção de estado: {err}")
         db.rollback()
         return False
     finally:
@@ -1427,3 +1428,61 @@ def consultar_historico_rastreio(codigo_rastreio):
     except Exception as e:
         logging.error(f"Erro interno no processamento do rastreio: {e}")
         return []
+
+# --- INTEGRAÇÃO AGENTE WHATSAPP (FLUXO C) ---
+
+# --- INTEGRAÇÃO AGENTE WHATSAPP (FLUXO C) ---
+
+def cancelar_protocolo_agente(protocolo_numero, motivo):
+    """
+    Localiza o protocolo pelo número. Se não estiver já encerrado (ID 9), 
+    altera o status para encerrado e grava o motivo no histórico.
+    """
+    db = conectar_bd()
+    if not db: return False, "Falha de conexão com o banco de dados."
+    
+    try:
+        cursor = db.cursor(dictionary=True)
+        
+        # 1. Busca o ID do protocolo e o status atual
+        query_busca = "SELECT id, status_id FROM protocolos_recompra WHERE numero_protocolo = %s LIMIT 1"
+        cursor.execute(query_busca, (protocolo_numero,))
+        protocolo = cursor.fetchone()
+        
+        if not protocolo:
+            return False, f"Protocolo {protocolo_numero} não encontrado."
+            
+        protocolo_id = protocolo['id']
+        
+        # 2. Verifica a trava de segurança
+        if protocolo['status_id'] == 9:
+            return False, f"Protocolo {protocolo_numero} já se encontra encerrado."
+            
+        # 3. Atualiza o status para 9 (Encerrado)
+        query_update = "UPDATE protocolos_recompra SET status_id = 9 WHERE id = %s"
+        cursor.execute(query_update, (protocolo_id,))
+        
+        # 4. Grava o histórico atribuindo ao Admin ID 1 (Ação do Sistema) para satisfazer a regra NOT NULL
+        texto_motivo = f"Cancelamento via Agente de WhatsApp. Motivo: {motivo}"
+        query_historico = """
+            INSERT INTO historico_status_protocolo (protocolo_id, status_id, usuario_admin_id, data_alteracao)
+            VALUES (%s, 9, 1, NOW())
+        """
+        cursor.execute(query_historico, (protocolo_id,))
+        
+        # 5. Salva o motivo visível no laudo técnico do painel
+        query_laudo = "UPDATE protocolos_recompra SET laudo_tecnico = CONCAT(IFNULL(laudo_tecnico, ''), '\n\n', %s) WHERE id = %s"
+        cursor.execute(query_laudo, (texto_motivo, protocolo_id))
+
+        db.commit()
+        logging.info(f"Protocolo {protocolo_numero} encerrado com sucesso pelo Agente.")
+        return True, "Protocolo encerrado com sucesso."
+        
+    except mysql.connector.Error as err:
+        logging.error(f"Erro MySQL ao cancelar protocolo pelo Agente: {err}")
+        db.rollback()
+        return False, f"Erro de banco de dados: {err}"
+    finally:
+        if db and db.is_connected():
+            cursor.close()
+            db.close()
