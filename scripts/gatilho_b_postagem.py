@@ -1,10 +1,15 @@
 # ==============================================================================
 # PROJETO: MyGames - Backoffice
 # MÓDULO: scripts/gatilho_b_postagem.py
+# DATA DE CRIAÇÃO: Outubro/2026
+# TÍTULO: Varredura de Postagem (Gatilho B)
 # FUNÇÃO: Script autónomo (Cronjob) para verificar status logístico de protocolos 
 # aguardando envio. Consulta a API REST dos Correios em lote. Caso o status mude
 # para "Postado", dispara o Webhook (Gatilho B) para o Agente de WhatsApp e 
 # avança o protocolo para o status 2 (Produto Recebido) no banco de dados.
+# HISTÓRICO DE ALTERAÇÕES:
+# - 30/10/2026: Adição do parâmetro de ambiente PRAZO_POSTAGEM_HORAS e otimização 
+#   da query SQL para limitar a busca a protocolos criados dentro desse limite.
 # ==============================================================================
 
 import os
@@ -44,10 +49,11 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 TOKEN_CACHE = {"token": None, "expira_em": None}
 
-# Credenciais Webhook (Gatilho B)
+# Credenciais Webhook (Gatilho B) e Regras de Negócio
 WEBHOOK_URL = os.getenv('WEBHOOK_AGENTE_URL_B')
 TOKEN_AGENTE = os.getenv('AGENTE_TOKEN_ENVIO')
 AMBIENTE = os.getenv('AMBIENTE_EXECUCAO', 'homologacao')
+PRAZO_POSTAGEM_HORAS = int(os.getenv('PRAZO_POSTAGEM_HORAS', 72))
 
 
 def conectar_bd():
@@ -179,15 +185,16 @@ def processar_varredura():
     
     try:
         cursor = db.cursor(dictionary=True)
-        # Seleciona Status 1 (Aguardando cliente levar ao correio)
+        # Seleciona Status 1 (Aguardando cliente) restrito ao prazo limite parametrizado
         query = """
             SELECT id, numero_protocolo, codigo_rastreio 
             FROM protocolos_recompra 
             WHERE status_id = 1 
               AND codigo_rastreio IS NOT NULL 
               AND codigo_rastreio != ''
+              AND data_criacao >= DATE_SUB(NOW(), INTERVAL %s HOUR)
         """
-        cursor.execute(query)
+        cursor.execute(query, (PRAZO_POSTAGEM_HORAS,))
         resultados = cursor.fetchall()
         
         for p in resultados:
@@ -243,4 +250,3 @@ def processar_varredura():
 
 if __name__ == "__main__":
     processar_varredura()
-    
