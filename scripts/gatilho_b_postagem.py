@@ -10,6 +10,7 @@
 # HISTÓRICO DE ALTERAÇÕES:
 # - 30/10/2026: Adição do parâmetro de ambiente PRAZO_POSTAGEM_HORAS e otimização 
 #   da query SQL para limitar a busca a protocolos criados dentro desse limite.
+# - 10/11/2026: Remoção do mock de testes e reativação da consulta real à API SRO.
 # ==============================================================================
 
 import os

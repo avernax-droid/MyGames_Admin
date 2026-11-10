@@ -24,6 +24,8 @@
 # - 25/06/2026: Implementação do fluxo de recuperação de senha (Opção 2 - geração de senha provisória).
 # - 25/06/2026: Integração real do disparo de e-mail (SMTP) na recuperação de senha.
 # - 25/06/2026: Integração de envio automático de e-mail ao cliente nas rotas de alteração de status da perícia.
+# - 26/06/2026: Dinamização do nome fantasia (via obter_dados_empresa) nos cabeçalhos e assinaturas de e-mail.
+# - 26/06/2026: Conversão dos templates de e-mail de status (Aprovado, Parcial e Negado) para HTML rico com busca de itens do protocolo.
 # - 26/06/2026: Integração da consulta de rastreio (Correios) na rota detalhes_protocolo.
 # - 27/06/2026: Injeção do historico_rastreio (Correios) na rota de Perícia da Esteira (Cockpit).
 # - 30/06/2026: Atualização da rota salvar_pericia_esteira para processar a Perícia Granular.
@@ -43,6 +45,7 @@
 # - 28/07/2026: Implementação das rotas /clientes e /clientes/<id> para a nova funcionalidade de Consulta de Clientes.
 # - 28/07/2026: Adição da rota /api/enviar_email_avulso para envio de e-mails via Modal (AJAX).
 # - 20/10/2026: Adição da rota de webhook /api/webhook/agente/cancelar_protocolo para o Fluxo C (Agente WhatsApp).
+# - 04/11/2026: Ajuste na rota do Gatilho C2 para retornar os códigos HTTP corretos (200, 401, 404, 409) baseados no contrato de API.
 # ==============================================================================
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify, make_response
@@ -1069,42 +1072,45 @@ def servir_midia_externa(filename):
 @app.route('/api/webhook/agente/cancelar_protocolo', methods=['POST'])
 def webhook_agente_cancelar():
     """
-    Recebe o webhook do Agente de WhatsApp (Gatilho C) para cancelar um protocolo.
+    Recebe o webhook do Agente de WhatsApp (Gatilho C2) para cancelar um protocolo.
     Acesso restrito através de autenticação Bearer Token via header.
+    Retorna respostas JSON formatadas conforme Contrato de API.
     """
     # 1. Validação de Segurança (Bearer Token)
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({'erro': 'Acesso negado: Token de autorizacao ausente ou mal formatado.'}), 401
+        return jsonify({'status': 'erro', 'mensagem': 'Token de autorização inválido ou ausente.'}), 401
         
     token_recebido = auth_header.split(" ")[1]
     token_esperado = os.getenv('AGENTE_API_TOKEN')
     
     if not token_esperado or token_recebido != token_esperado:
-        return jsonify({'erro': 'Acesso negado: Token invalido.'}), 401
+        return jsonify({'status': 'erro', 'mensagem': 'Token de autorização inválido ou ausente.'}), 401
 
     # 2. Leitura e validação do Payload (JSON)
     if not request.is_json:
-        return jsonify({'erro': 'O corpo da requisicao deve estar no formato JSON.'}), 400
+        return jsonify({'status': 'erro', 'mensagem': 'O corpo da requisição deve estar no formato JSON.'}), 400
         
     dados = request.get_json()
     evento = dados.get('evento')
     protocolo = dados.get('protocolo')
-    motivo = dados.get('motivo', 'Motivo não informado')
+    motivo = dados.get('motivo', 'cliente_desistiu_via_whatsapp')
     
     if evento != 'cancelar_protocolo':
-        return jsonify({'erro': 'Evento invalido. Esperado "cancelar_protocolo".'}), 400
+        return jsonify({'status': 'erro', 'mensagem': 'Evento inválido. Esperado "cancelar_protocolo".'}), 400
         
     if not protocolo:
-        return jsonify({'erro': 'O numero do protocolo e obrigatorio.'}), 400
+        return jsonify({'status': 'erro', 'mensagem': 'O número do protocolo é obrigatório.'}), 400
         
-    # 3. Processamento na Base de Dados
-    sucesso, mensagem = admin_engine.cancelar_protocolo_agente(protocolo, motivo)
+    # 3. Processamento na Base de Dados e Retorno de Status Code
+    codigo_http, mensagem, status_atual = admin_engine.cancelar_protocolo_agente(protocolo, motivo)
     
-    if sucesso:
-        return jsonify({'sucesso': True, 'mensagem': mensagem}), 200
-    else:
-        return jsonify({'sucesso': False, 'erro': mensagem}), 400
+    resposta = {'status': 'sucesso' if codigo_http == 200 else 'erro', 'mensagem': mensagem}
+    
+    if status_atual:
+        resposta['status_atual'] = status_atual
+        
+    return jsonify(resposta), codigo_http
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=(os.getenv("FLASK_DEBUG") == "1"), port=int(os.getenv("PORTA_FLASK", 5002)))

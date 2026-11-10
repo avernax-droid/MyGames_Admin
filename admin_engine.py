@@ -61,6 +61,7 @@
 # - 28/07/2026: Adição da função buscar_clientes_por_chave e inclusão de CPF e origem_lead na query obter_cabecalho_protocolo.
 # - 28/07/2026: Adição da função enviar_email_avulso_modal para envio de e-mails diretamente pelo Modal do painel.
 # - 20/10/2026: Adição da função cancelar_protocolo_agente para integração do Gatilho C (Agente WhatsApp).
+# - 04/11/2026: Refatoração da função cancelar_protocolo_agente para retornar códigos HTTP e nome do status_atual no formato da API.
 # ==============================================================================
 import mysql.connector
 import os
@@ -1431,32 +1432,38 @@ def consultar_historico_rastreio(codigo_rastreio):
 
 # --- INTEGRAÇÃO AGENTE WHATSAPP (FLUXO C) ---
 
-# --- INTEGRAÇÃO AGENTE WHATSAPP (FLUXO C) ---
-
 def cancelar_protocolo_agente(protocolo_numero, motivo):
     """
     Localiza o protocolo pelo número. Se não estiver já encerrado (ID 9), 
     altera o status para encerrado e grava o motivo no histórico.
+    Retorna (código_http, mensagem, status_atual).
     """
     db = conectar_bd()
-    if not db: return False, "Falha de conexão com o banco de dados."
+    if not db: return 500, "Falha de conexão com o banco de dados.", None
     
     try:
         cursor = db.cursor(dictionary=True)
         
-        # 1. Busca o ID do protocolo e o status atual
-        query_busca = "SELECT id, status_id FROM protocolos_recompra WHERE numero_protocolo = %s LIMIT 1"
+        # 1. Busca o ID do protocolo e o status atual com nome
+        query_busca = """
+            SELECT p.id, p.status_id, s.nome_exibicao as status_nome
+            FROM protocolos_recompra p
+            LEFT JOIN status_protocolos s ON p.status_id = s.id
+            WHERE p.numero_protocolo = %s LIMIT 1
+        """
         cursor.execute(query_busca, (protocolo_numero,))
         protocolo = cursor.fetchone()
         
         if not protocolo:
-            return False, f"Protocolo {protocolo_numero} não encontrado."
+            return 404, f"Protocolo {protocolo_numero} não localizado na base de dados.", None
             
         protocolo_id = protocolo['id']
+        status_atual_nome = protocolo.get('status_nome', 'Desconhecido')
         
-        # 2. Verifica a trava de segurança
+        # 2. Verifica a trava de segurança (Estado Terminal)
+        # Considerando ID 9 como Encerrado/Cancelado
         if protocolo['status_id'] == 9:
-            return False, f"Protocolo {protocolo_numero} já se encontra encerrado."
+            return 409, "Operação negada. O protocolo encontra-se em um estado terminal.", status_atual_nome
             
         # 3. Atualiza o status para 9 (Encerrado)
         query_update = "UPDATE protocolos_recompra SET status_id = 9 WHERE id = %s"
@@ -1476,12 +1483,12 @@ def cancelar_protocolo_agente(protocolo_numero, motivo):
 
         db.commit()
         logging.info(f"Protocolo {protocolo_numero} encerrado com sucesso pelo Agente.")
-        return True, "Protocolo encerrado com sucesso."
+        return 200, f"Protocolo {protocolo_numero} cancelado com sucesso.", None
         
     except mysql.connector.Error as err:
         logging.error(f"Erro MySQL ao cancelar protocolo pelo Agente: {err}")
         db.rollback()
-        return False, f"Erro de banco de dados: {err}"
+        return 500, f"Erro de banco de dados: {err}", None
     finally:
         if db and db.is_connected():
             cursor.close()
