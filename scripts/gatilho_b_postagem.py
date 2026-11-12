@@ -11,6 +11,7 @@
 # - 30/10/2026: Adição do parâmetro de ambiente PRAZO_POSTAGEM_HORAS e otimização 
 #   da query SQL para limitar a busca a protocolos criados dentro desse limite.
 # - 10/11/2026: Remoção do mock de testes e reativação da consulta real à API SRO.
+# - 11/11/2026: Inclusão da política de retentativas (backoff 1m, 5m, 15m, 60m) no disparar_gatilho_b.
 # ==============================================================================
 
 import os
@@ -19,6 +20,7 @@ import base64
 import requests
 import json
 import logging
+import time
 import mysql.connector
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -123,7 +125,7 @@ def consultar_sro_lote(codigos):
         return None
 
 def disparar_gatilho_b(numero_protocolo, codigo_rastreio):
-    """Envia o POST para a API do Agente de WhatsApp informando o envio."""
+    """Envia o POST para a API do Agente de WhatsApp informando o envio, com retentativas."""
     if not WEBHOOK_URL:
         logging.warning("WEBHOOK_AGENTE_URL_B não configurado. Gatilho B não disparado.")
         return False
@@ -141,17 +143,60 @@ def disparar_gatilho_b(numero_protocolo, codigo_rastreio):
     if TOKEN_AGENTE:
         headers["Authorization"] = f"Bearer {TOKEN_AGENTE}"
         
-    try:
-        resp = requests.post(WEBHOOK_URL, json=payload, headers=headers, timeout=10)
-        if resp.status_code in [200, 201]:
-            logging.info(f"Gatilho B disparado com sucesso para {numero_protocolo}.")
-            return True
-        else:
-            logging.error(f"Falha no Webhook (Gatilho B). Status: {resp.status_code} | Resposta: {resp.text}")
-            return False
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Timeout/Erro ao conectar no Webhook do Agente: {e}")
-        return False
+    intervalos_retentativa = [60, 300, 900, 3600]
+    tentativas = 0
+    max_tentativas = len(intervalos_retentativa) + 1
+
+    while tentativas < max_tentativas:
+        try:
+            logging.info(f"Disparando Webhook (Gatilho B). Tentativa {tentativas + 1}/{max_tentativas}. Protocolo: {numero_protocolo}")
+            resp = requests.post(WEBHOOK_URL, json=payload, headers=headers, timeout=20)
+            
+            if resp.status_code == 200:
+                try:
+                    json_resp = resp.json()
+                    if json_resp.get("ok") is True:
+                        logging.info("Webhook (Gatilho B) enviado e aceito com sucesso pelo N8N.")
+                        return True
+                    else:
+                        logging.warning(f"Webhook (Gatilho B) retornou HTTP 200 sem 'ok=true'. Retorno: {resp.text}")
+                except ValueError:
+                    logging.warning(f"Webhook (Gatilho B) retornou HTTP 200, mas corpo não é JSON válido: {resp.text}")
+
+            elif resp.status_code in (400, 401, 403, 404, 409):
+                logging.error(f"Erro definitivo do cliente ou segurança (HTTP {resp.status_code}). Retentativas abortadas. Retorno: {resp.text}")
+                return False
+
+            elif resp.status_code == 429:
+                retry_after = resp.headers.get("Retry-After")
+                espera_atual = int(retry_after) if retry_after else intervalos_retentativa[tentativas]
+                logging.warning(f"Too Many Requests (HTTP 429). Aguardando {espera_atual}s.")
+                if tentativas < len(intervalos_retentativa):
+                    time.sleep(espera_atual)
+                    tentativas += 1
+                    continue
+                else:
+                    return False
+
+            else:
+                logging.warning(f"Falha ao enviar Webhook (Gatilho B). Status: {resp.status_code}. Retorno: {resp.text}")
+
+        except requests.exceptions.Timeout:
+            logging.error(f"Timeout ao enviar Webhook (Gatilho B) na tentativa {tentativas + 1}.")
+        except requests.exceptions.ConnectionError as ce:
+            logging.error(f"Erro de conexão ao enviar Webhook (Gatilho B) na tentativa {tentativas + 1}: {ce}")
+        except Exception as e:
+            logging.error(f"Erro inesperado ao enviar Webhook (Gatilho B) na tentativa {tentativas + 1}: {e}")
+
+        if tentativas < len(intervalos_retentativa):
+            tempo_espera = intervalos_retentativa[tentativas]
+            logging.info(f"Aguardando {tempo_espera}s para a próxima retentativa...")
+            time.sleep(tempo_espera)
+        
+        tentativas += 1
+
+    logging.error(f"Esgotadas as {max_tentativas} tentativas do Webhook (Gatilho B) para o protocolo {numero_protocolo}. Evento pendente para reconciliação.")
+    return False
 
 def avancar_status_local(protocolo_id):
     """Avança o protocolo para Status 2 (Produto Recebido) e regista o histórico."""

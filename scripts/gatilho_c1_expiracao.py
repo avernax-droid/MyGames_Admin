@@ -6,12 +6,15 @@
 # FUNÇÃO: Script autónomo (Cronjob) para verificar protocolos que ultrapassaram
 # o prazo limite estipulado (PRAZO_POSTAGEM_HORAS). Altera o status para 
 # 'Cancelado Limite Postagem' (ID 18) e dispara o Webhook para o Agente N8N.
+# HISTÓRICO DE ALTERAÇÕES:
+# - 11/11/2026: Inclusão da política de retentativas (backoff 1m, 5m, 15m, 60m) no disparar_gatilho_c1.
 # ==============================================================================
 
 import os
 import sys
 import requests
 import logging
+import time
 import mysql.connector
 from dotenv import load_dotenv
 
@@ -48,7 +51,7 @@ def conectar_bd():
         sys.exit(1)
 
 def disparar_gatilho_c1(numero_protocolo, data_cancelamento):
-    """Envia o POST para a API do Agente de WhatsApp informando o cancelamento automático."""
+    """Envia o POST para a API do Agente de WhatsApp informando o cancelamento automático, com retentativas."""
     if not WEBHOOK_URL:
         logging.warning("WEBHOOK_AGENTE_URL_C1 não configurado. Gatilho C1 não disparado.")
         return False
@@ -67,17 +70,60 @@ def disparar_gatilho_c1(numero_protocolo, data_cancelamento):
     if TOKEN_AGENTE:
         headers["Authorization"] = f"Bearer {TOKEN_AGENTE}"
         
-    try:
-        resp = requests.post(WEBHOOK_URL, json=payload, headers=headers, timeout=10)
-        if resp.status_code in [200, 201]:
-            logging.info(f"Gatilho C1 disparado com sucesso para {numero_protocolo}.")
-            return True
-        else:
-            logging.error(f"Falha no Webhook (Gatilho C1). Status: {resp.status_code} | Resposta: {resp.text}")
-            return False
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Timeout/Erro ao conectar no Webhook do Agente: {e}")
-        return False
+    intervalos_retentativa = [60, 300, 900, 3600]
+    tentativas = 0
+    max_tentativas = len(intervalos_retentativa) + 1
+
+    while tentativas < max_tentativas:
+        try:
+            logging.info(f"Disparando Webhook (Gatilho C1). Tentativa {tentativas + 1}/{max_tentativas}. Protocolo: {numero_protocolo}")
+            resp = requests.post(WEBHOOK_URL, json=payload, headers=headers, timeout=20)
+            
+            if resp.status_code == 200:
+                try:
+                    json_resp = resp.json()
+                    if json_resp.get("ok") is True:
+                        logging.info("Webhook (Gatilho C1) enviado e aceito com sucesso pelo N8N.")
+                        return True
+                    else:
+                        logging.warning(f"Webhook (Gatilho C1) retornou HTTP 200 sem 'ok=true'. Retorno: {resp.text}")
+                except ValueError:
+                    logging.warning(f"Webhook (Gatilho C1) retornou HTTP 200, mas corpo não é JSON válido: {resp.text}")
+
+            elif resp.status_code in (400, 401, 403, 404, 409):
+                logging.error(f"Erro definitivo do cliente ou segurança (HTTP {resp.status_code}). Retentativas abortadas. Retorno: {resp.text}")
+                return False
+
+            elif resp.status_code == 429:
+                retry_after = resp.headers.get("Retry-After")
+                espera_atual = int(retry_after) if retry_after else intervalos_retentativa[tentativas]
+                logging.warning(f"Too Many Requests (HTTP 429). Aguardando {espera_atual}s.")
+                if tentativas < len(intervalos_retentativa):
+                    time.sleep(espera_atual)
+                    tentativas += 1
+                    continue
+                else:
+                    return False
+
+            else:
+                logging.warning(f"Falha ao enviar Webhook (Gatilho C1). Status: {resp.status_code}. Retorno: {resp.text}")
+
+        except requests.exceptions.Timeout:
+            logging.error(f"Timeout ao enviar Webhook (Gatilho C1) na tentativa {tentativas + 1}.")
+        except requests.exceptions.ConnectionError as ce:
+            logging.error(f"Erro de conexão ao enviar Webhook (Gatilho C1) na tentativa {tentativas + 1}: {ce}")
+        except Exception as e:
+            logging.error(f"Erro inesperado ao enviar Webhook (Gatilho C1) na tentativa {tentativas + 1}: {e}")
+
+        if tentativas < len(intervalos_retentativa):
+            tempo_espera = intervalos_retentativa[tentativas]
+            logging.info(f"Aguardando {tempo_espera}s para a próxima retentativa...")
+            time.sleep(tempo_espera)
+        
+        tentativas += 1
+
+    logging.error(f"Esgotadas as {max_tentativas} tentativas do Webhook (Gatilho C1) para o protocolo {numero_protocolo}. Evento pendente para reconciliação.")
+    return False
 
 def cancelar_protocolo_local(protocolo_id, motivo):
     """Altera o status do protocolo para 18 (Cancelado limite postagem) e regista no histórico."""
