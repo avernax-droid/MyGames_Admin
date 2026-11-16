@@ -62,6 +62,8 @@
 # - 28/07/2026: Adição da função enviar_email_avulso_modal para envio de e-mails diretamente pelo Modal do painel.
 # - 20/10/2026: Adição da função cancelar_protocolo_agente para integração do Gatilho C (Agente WhatsApp).
 # - 04/11/2026: Refatoração da função cancelar_protocolo_agente para retornar códigos HTTP e nome do status_atual no formato da API.
+# - 13/11/2026: Sincronização da coluna textual status = 'Recusado' juntamente com status_id = 9 em cancelar_protocolo_agente e alinhamento das travas HTTP 409 ('Cancelado'/'Finalizado') conforme contrato N8N.
+# - 16/11/2026: Atualização da função cancelar_protocolo_agente para gravar status = 'Cancelado' (novo valor do ENUM) juntamente com status_id = 9 e validar estados terminais ('Cancelado', 'Expirado', 'Recusado' e status_id 9/18).
 # ==============================================================================
 import mysql.connector
 import os
@@ -1434,8 +1436,8 @@ def consultar_historico_rastreio(codigo_rastreio):
 
 def cancelar_protocolo_agente(protocolo_numero, motivo):
     """
-    Localiza o protocolo pelo número. Se não estiver já encerrado (ID 9), 
-    altera o status para encerrado e grava o motivo no histórico.
+    Localiza o protocolo pelo número. Se não estiver em estado terminal (Cancelado/Finalizado), 
+    altera o status_id para 9 (Encerrado) e status para 'Cancelado', gravando o motivo no histórico.
     Retorna (código_http, mensagem, status_atual).
     """
     db = conectar_bd()
@@ -1444,9 +1446,9 @@ def cancelar_protocolo_agente(protocolo_numero, motivo):
     try:
         cursor = db.cursor(dictionary=True)
         
-        # 1. Busca o ID do protocolo e o status atual com nome
+        # 1. Busca o ID do protocolo, status textual e status_id atual
         query_busca = """
-            SELECT p.id, p.status_id, s.nome_exibicao as status_nome
+            SELECT p.id, p.status, p.status_id, s.nome_exibicao as status_nome
             FROM protocolos_recompra p
             LEFT JOIN status_protocolos s ON p.status_id = s.id
             WHERE p.numero_protocolo = %s LIMIT 1
@@ -1458,15 +1460,17 @@ def cancelar_protocolo_agente(protocolo_numero, motivo):
             return 404, f"Protocolo {protocolo_numero} não localizado na base de dados.", None
             
         protocolo_id = protocolo['id']
-        status_atual_nome = protocolo.get('status_nome', 'Desconhecido')
+        status_enum = (protocolo.get('status') or '').strip()
         
-        # 2. Verifica a trava de segurança (Estado Terminal)
-        # Considerando ID 9 como Encerrado/Cancelado
-        if protocolo['status_id'] == 9:
-            return 409, "Operação negada. O protocolo encontra-se em um estado terminal.", status_atual_nome
+        # 2. Verifica a trava de segurança (Estados Terminais conforme contrato N8N)
+        if status_enum == 'Finalizado':
+            return 409, "Operação negada. O protocolo encontra-se Finalizado.", "Finalizado"
             
-        # 3. Atualiza o status para 9 (Encerrado)
-        query_update = "UPDATE protocolos_recompra SET status_id = 9 WHERE id = %s"
+        if protocolo['status_id'] in (9, 18) or status_enum in ('Cancelado', 'Expirado', 'Recusado'):
+            return 409, "Operação negada. O protocolo já encontra-se Cancelado.", "Cancelado"
+            
+        # 3. Atualiza o status_id para 9 (Encerrado) e o ENUM status para 'Cancelado'
+        query_update = "UPDATE protocolos_recompra SET status = 'Cancelado', status_id = 9 WHERE id = %s"
         cursor.execute(query_update, (protocolo_id,))
         
         # 4. Grava o histórico atribuindo ao Admin ID 1 (Ação do Sistema) para satisfazer a regra NOT NULL

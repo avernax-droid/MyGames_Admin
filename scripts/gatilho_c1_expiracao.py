@@ -3,11 +3,17 @@
 # MÓDULO: scripts/gatilho_c1_expiracao.py
 # DATA DE CRIAÇÃO: Novembro/2026
 # TÍTULO: Varredura de Expiração (Gatilho C1)
-# FUNÇÃO: Script autónomo (Cronjob) para verificar protocolos que ultrapassaram
-# o prazo limite estipulado (PRAZO_POSTAGEM_HORAS). Altera o status para 
-# 'Cancelado Limite Postagem' (ID 18) e dispara o Webhook para o Agente N8N.
+# FUNÇÃO: Script autônomo (Cronjob) para verificar protocolos que ultrapassaram
+#         o prazo limite estipulado (PRAZO_POSTAGEM_HORAS). Altera o status
+#         macro para 'Expirado' e status_id para 18 ('Cancelado por prazo de
+#         postagem vencido') e dispara o Webhook para o Agente N8N.
 # HISTÓRICO DE ALTERAÇÕES:
-# - 11/11/2026: Inclusão da política de retentativas (backoff 1m, 5m, 15m, 60m) no disparar_gatilho_c1.
+# - 11/11/2026: Inclusão da política de retentativas (backoff 1m, 5m, 15m, 60m)
+#               no disparar_gatilho_c1.
+# - 16/11/2026: Padronização das variáveis .env (N8N_WEBHOOK_URL e
+#               N8N_BEARER_TOKEN com sanitização), sincronização de
+#               status = 'Expirado' com status_id = 18 e alinhamento do campo
+#               motivo para 'prazo_de_postagem_expirado' conforme contrato N8N.
 # ==============================================================================
 
 import os
@@ -22,24 +28,31 @@ from dotenv import load_dotenv
 caminho_env_admin = os.path.abspath(os.path.join(os.path.dirname(__file__), '../.env'))
 load_dotenv(dotenv_path=caminho_env_admin)
 
+
+def _limpar_env(chave, padrao=""):
+    valor = os.getenv(chave, padrao)
+    return valor.strip().strip('"').strip("'") if valor else padrao
+
+
 # Configuração de Logs
 logging.basicConfig(
-    level=logging.INFO, 
+    level=logging.INFO,
     format='%(asctime)s - [GATILHO_C1] %(levelname)s - %(message)s'
 )
 
 # Credenciais Banco de Dados
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = int(os.getenv("DB_PORT", 3306))
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_NAME = os.getenv("DB_NAME")
+DB_HOST = _limpar_env("DB_HOST")
+DB_PORT = int(_limpar_env("DB_PORT", "3306"))
+DB_USER = _limpar_env("DB_USER")
+DB_PASS = _limpar_env("DB_PASS")
+DB_NAME = _limpar_env("DB_NAME")
 
 # Credenciais Webhook (Gatilho C1) e Regras de Negócio
-WEBHOOK_URL = os.getenv('WEBHOOK_AGENTE_URL_C1')
-TOKEN_AGENTE = os.getenv('AGENTE_TOKEN_ENVIO')
-AMBIENTE = os.getenv('AMBIENTE_EXECUCAO', 'homologacao')
-PRAZO_POSTAGEM_HORAS = int(os.getenv('PRAZO_POSTAGEM_HORAS', 72))
+WEBHOOK_URL = _limpar_env("N8N_WEBHOOK_URL") or _limpar_env("WEBHOOK_AGENTE_URL_C1")
+TOKEN_AGENTE = _limpar_env("N8N_BEARER_TOKEN") or _limpar_env("AGENTE_TOKEN_ENVIO")
+AMBIENTE = _limpar_env("AMBIENTE_EXECUCAO", "homologacao")
+PRAZO_POSTAGEM_HORAS = int(_limpar_env("PRAZO_POSTAGEM_HORAS", "72"))
+
 
 def conectar_bd():
     try:
@@ -50,26 +63,27 @@ def conectar_bd():
         logging.error(f"Falha crítica na conexão com o banco de dados: {e}")
         sys.exit(1)
 
+
 def disparar_gatilho_c1(numero_protocolo, data_cancelamento):
     """Envia o POST para a API do Agente de WhatsApp informando o cancelamento automático, com retentativas."""
     if not WEBHOOK_URL:
-        logging.warning("WEBHOOK_AGENTE_URL_C1 não configurado. Gatilho C1 não disparado.")
+        logging.warning("N8N_WEBHOOK_URL / WEBHOOK_AGENTE_URL_C1 não configurado. Gatilho C1 não disparado.")
         return False
-        
+
     payload = {
         "evento": "protocolo_expirado",
         "dados": {
+            "ambiente": AMBIENTE,
             "protocolo": numero_protocolo,
-            "motivo": "Prazo excedido na virada do dia limite",
-            "data_cancelamento": data_cancelamento,
-            "ambiente": AMBIENTE
+            "motivo": "prazo_de_postagem_expirado",
+            "data_cancelamento": data_cancelamento
         }
     }
-    
+
     headers = {"Content-Type": "application/json"}
     if TOKEN_AGENTE:
         headers["Authorization"] = f"Bearer {TOKEN_AGENTE}"
-        
+
     intervalos_retentativa = [60, 300, 900, 3600]
     tentativas = 0
     max_tentativas = len(intervalos_retentativa) + 1
@@ -78,7 +92,7 @@ def disparar_gatilho_c1(numero_protocolo, data_cancelamento):
         try:
             logging.info(f"Disparando Webhook (Gatilho C1). Tentativa {tentativas + 1}/{max_tentativas}. Protocolo: {numero_protocolo}")
             resp = requests.post(WEBHOOK_URL, json=payload, headers=headers, timeout=20)
-            
+
             if resp.status_code == 200:
                 try:
                     json_resp = resp.json()
@@ -119,33 +133,35 @@ def disparar_gatilho_c1(numero_protocolo, data_cancelamento):
             tempo_espera = intervalos_retentativa[tentativas]
             logging.info(f"Aguardando {tempo_espera}s para a próxima retentativa...")
             time.sleep(tempo_espera)
-        
+
         tentativas += 1
 
     logging.error(f"Esgotadas as {max_tentativas} tentativas do Webhook (Gatilho C1) para o protocolo {numero_protocolo}. Evento pendente para reconciliação.")
     return False
 
+
 def cancelar_protocolo_local(protocolo_id, motivo):
-    """Altera o status do protocolo para 18 (Cancelado limite postagem) e regista no histórico."""
+    """Altera o status macro para 'Expirado' e status_id para 18 ('Cancelado por prazo de postagem vencido') e registra no histórico."""
     db = conectar_bd()
+    cursor = None
     try:
         cursor = db.cursor()
-        
-        # Atualiza o status para 18 (Cancelado limite de tempo postagem)
-        query_update = "UPDATE protocolos_recompra SET status_id = 18 WHERE id = %s"
+
+        # Sincroniza status macro ('Expirado') e esteira operacional (status_id = 18)
+        query_update = "UPDATE protocolos_recompra SET status = 'Expirado', status_id = 18 WHERE id = %s"
         cursor.execute(query_update, (protocolo_id,))
-        
+
         # ID 1 para o admin fictício 'Sistema' no histórico
         query_log = """
             INSERT INTO historico_status_protocolo (protocolo_id, status_id, usuario_admin_id, data_alteracao)
             VALUES (%s, 18, 1, NOW())
         """
         cursor.execute(query_log, (protocolo_id,))
-        
+
         # Adiciona o motivo ao laudo_tecnico
         query_laudo = "UPDATE protocolos_recompra SET laudo_tecnico = CONCAT(IFNULL(laudo_tecnico, ''), '\n\n', %s) WHERE id = %s"
         cursor.execute(query_laudo, (motivo, protocolo_id))
-        
+
         db.commit()
         return True
     except mysql.connector.Error as e:
@@ -153,15 +169,18 @@ def cancelar_protocolo_local(protocolo_id, motivo):
         db.rollback()
         return False
     finally:
-        if db and db.is_connected():
+        if cursor:
             cursor.close()
+        if db and db.is_connected():
             db.close()
+
 
 def processar_varredura_expiracao():
     logging.info(f"Iniciando varredura diária de expiração (Gatilho C1) - Prazo: {PRAZO_POSTAGEM_HORAS}h...")
     db = conectar_bd()
     protocolos_expirados = []
-    
+    cursor = None
+
     try:
         cursor = db.cursor(dictionary=True)
         # Seleciona Status 1 (Aguardando cliente) que ultrapassaram o prazo
@@ -173,13 +192,14 @@ def processar_varredura_expiracao():
         """
         cursor.execute(query, (PRAZO_POSTAGEM_HORAS,))
         protocolos_expirados = cursor.fetchall()
-        
+
     except Exception as e:
         logging.error(f"Erro ao ler banco de dados: {e}")
         sys.exit(1)
     finally:
-        if db and db.is_connected():
+        if cursor:
             cursor.close()
+        if db and db.is_connected():
             db.close()
 
     if not protocolos_expirados:
@@ -194,15 +214,16 @@ def processar_varredura_expiracao():
         prot_id = p['id']
         num_prot = p['numero_protocolo']
         data_hoje = p['data_hoje']
-        
+
         logging.info(f"A cancelar protocolo {num_prot}...")
-        
+
         # 1. Atualiza Banco de Dados
         if cancelar_protocolo_local(prot_id, motivo_cancelamento):
             # 2. Dispara o Gatilho
             disparar_gatilho_c1(num_prot, data_hoje)
-            
+
     logging.info("Varredura de expiração (Gatilho C1) finalizada com sucesso.")
+
 
 if __name__ == "__main__":
     processar_varredura_expiracao()

@@ -46,6 +46,7 @@
 # - 28/07/2026: Adição da rota /api/enviar_email_avulso para envio de e-mails via Modal (AJAX).
 # - 20/10/2026: Adição da rota de webhook /api/webhook/agente/cancelar_protocolo para o Fluxo C (Agente WhatsApp).
 # - 04/11/2026: Ajuste na rota do Gatilho C2 para retornar os códigos HTTP corretos (200, 401, 404, 409) baseados no contrato de API.
+# - 13/11/2026: Sanitização da leitura de AGENTE_API_TOKEN e AMBIENTE_EXECUCAO no webhook C2 e validação opcional de ambiente conforme contrato N8N.
 # ==============================================================================
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify, make_response
@@ -1077,12 +1078,12 @@ def webhook_agente_cancelar():
     Retorna respostas JSON formatadas conforme Contrato de API.
     """
     # 1. Validação de Segurança (Bearer Token)
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
+    auth_header = request.headers.get('Authorization', '').strip()
+    if not auth_header.startswith('Bearer '):
         return jsonify({'status': 'erro', 'mensagem': 'Token de autorização inválido ou ausente.'}), 401
         
-    token_recebido = auth_header.split(" ")[1]
-    token_esperado = os.getenv('AGENTE_API_TOKEN')
+    token_recebido = auth_header.split(" ", 1)[1].strip()
+    token_esperado = str(os.getenv('AGENTE_API_TOKEN', '')).strip().strip('"').strip("'").strip()
     
     if not token_esperado or token_recebido != token_esperado:
         return jsonify({'status': 'erro', 'mensagem': 'Token de autorização inválido ou ausente.'}), 401
@@ -1091,16 +1092,21 @@ def webhook_agente_cancelar():
     if not request.is_json:
         return jsonify({'status': 'erro', 'mensagem': 'O corpo da requisição deve estar no formato JSON.'}), 400
         
-    dados = request.get_json()
+    dados = request.get_json(silent=True) or {}
     evento = dados.get('evento')
     protocolo = dados.get('protocolo')
     motivo = dados.get('motivo', 'cliente_desistiu_via_whatsapp')
+    ambiente_payload = str(dados.get('ambiente', '')).strip().lower()
+    ambiente_servidor = str(os.getenv('AMBIENTE_EXECUCAO', '')).strip().strip('"').strip("'").lower()
     
     if evento != 'cancelar_protocolo':
         return jsonify({'status': 'erro', 'mensagem': 'Evento inválido. Esperado "cancelar_protocolo".'}), 400
         
     if not protocolo:
         return jsonify({'status': 'erro', 'mensagem': 'O número do protocolo é obrigatório.'}), 400
+
+    if ambiente_payload and ambiente_servidor and ambiente_payload != ambiente_servidor:
+        return jsonify({'status': 'erro', 'mensagem': f'Ambiente inválido. Esperado "{ambiente_servidor}".'}), 400
         
     # 3. Processamento na Base de Dados e Retorno de Status Code
     codigo_http, mensagem, status_atual = admin_engine.cancelar_protocolo_agente(protocolo, motivo)
