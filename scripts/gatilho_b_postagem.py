@@ -12,6 +12,8 @@
 #   da query SQL para limitar a busca a protocolos criados dentro desse limite.
 # - 10/11/2026: Remoção do mock de testes e reativação da consulta real à API SRO.
 # - 11/11/2026: Inclusão da política de retentativas (backoff 1m, 5m, 15m, 60m) no disparar_gatilho_b.
+# - 21/11/2026: Ampliação da varredura para status_id IN (1, 19, 20, 21) (repescagem/reagendamento/carência)
+#   e padronização da leitura de variáveis N8N_WEBHOOK_URL e N8N_BEARER_TOKEN do .env.
 # ==============================================================================
 
 import os
@@ -35,6 +37,12 @@ logging.basicConfig(
     format='%(asctime)s - [GATILHO_B] %(levelname)s - %(message)s'
 )
 
+def _limpar_env(chave, padrao=''):
+    valor = os.getenv(chave)
+    if valor is None:
+        return padrao
+    return str(valor).strip().strip('"').strip("'").strip()
+
 # Credenciais Banco de Dados
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = int(os.getenv("DB_PORT", 3306))
@@ -43,20 +51,19 @@ DB_PASS = os.getenv("DB_PASS")
 DB_NAME = os.getenv("DB_NAME")
 
 # Credenciais Correios
-CLIENT_ID = os.getenv('CORREIOS_CLIENT_ID', '').strip()
-CLIENT_SECRET = os.getenv('CORREIOS_CLIENT_SECRET', '').strip()
-CARTAO_POSTAGEM = os.getenv('CORREIOS_CARTAO_POSTAGEM', '').strip()
+CLIENT_ID = _limpar_env('CORREIOS_CLIENT_ID')
+CLIENT_SECRET = _limpar_env('CORREIOS_CLIENT_SECRET')
+CARTAO_POSTAGEM = _limpar_env('CORREIOS_CARTAO_POSTAGEM')
 URL_TOKEN = "https://api.correios.com.br/token/v1/autentica/cartaopostagem"
 URL_SRO = "https://api.correios.com.br/srorastro/v1/objetos"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 TOKEN_CACHE = {"token": None, "expira_em": None}
 
-# Credenciais Webhook (Gatilho B) e Regras de Negócio
-WEBHOOK_URL = os.getenv('WEBHOOK_AGENTE_URL_B')
-TOKEN_AGENTE = os.getenv('AGENTE_TOKEN_ENVIO')
-AMBIENTE = os.getenv('AMBIENTE_EXECUCAO', 'homologacao')
-PRAZO_POSTAGEM_HORAS = int(os.getenv('PRAZO_POSTAGEM_HORAS', 72))
+# Credenciais Webhook (Gatilho B - Padrão Unificado) e Regras de Negócio
+WEBHOOK_URL = _limpar_env('N8N_WEBHOOK_URL') or _limpar_env('WEBHOOK_AGENTE_URL_B')
+TOKEN_AGENTE = _limpar_env('N8N_BEARER_TOKEN') or _limpar_env('AGENTE_TOKEN_ENVIO')
+AMBIENTE = _limpar_env('AMBIENTE_EXECUCAO', 'homologacao').lower()
 
 
 def conectar_bd():
@@ -127,7 +134,7 @@ def consultar_sro_lote(codigos):
 def disparar_gatilho_b(numero_protocolo, codigo_rastreio):
     """Envia o POST para a API do Agente de WhatsApp informando o envio, com retentativas."""
     if not WEBHOOK_URL:
-        logging.warning("WEBHOOK_AGENTE_URL_B não configurado. Gatilho B não disparado.")
+        logging.warning("N8N_WEBHOOK_URL não configurado. Gatilho B não disparado.")
         return False
         
     payload = {
@@ -231,16 +238,16 @@ def processar_varredura():
     
     try:
         cursor = db.cursor(dictionary=True)
-        # Seleciona Status 1 (Aguardando cliente) restrito ao prazo limite parametrizado
+        # Seleciona protocolos aguardando postagem inicial (1) ou em fluxo de repescagem (19, 20, 21)
         query = """
             SELECT id, numero_protocolo, codigo_rastreio 
             FROM protocolos_recompra 
-            WHERE status_id = 1 
+            WHERE status = 'Aberto'
+              AND status_id IN (1, 19, 20, 21)
               AND codigo_rastreio IS NOT NULL 
               AND codigo_rastreio != ''
-              AND data_criacao >= DATE_SUB(NOW(), INTERVAL %s HOUR)
         """
-        cursor.execute(query, (PRAZO_POSTAGEM_HORAS,))
+        cursor.execute(query)
         resultados = cursor.fetchall()
         
         for p in resultados:
