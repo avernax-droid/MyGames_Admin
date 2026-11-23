@@ -20,6 +20,9 @@ __pycache__/
 !carga_configs.sql
 !requirements.txt
 
+# 1. Adiciona *.log ao .gitignore do MyGames
+echo "*.log" >> /home/userverna/MyGames/.gitignore
+
 # Arquivos de Sistema Operacional
 .DS_Store
 Thumbs.db

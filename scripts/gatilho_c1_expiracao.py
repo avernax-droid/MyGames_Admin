@@ -23,6 +23,10 @@
 #               Etapa 1 move status_id 1 -> 19 e dispara C1 (protocolo_expirado);
 #               Etapa 2 encerra definitivamente status_id 19/20/21 -> 18 ('Expirado')
 #               e dispara o novo Gatilho C3 (protocolo_cancelado_prazo).
+# - 23/11/2026: Ajuste na Etapa 2 para calcular a carência (status_id 21) e o
+#               timeout de recuperação (status_id 19) a partir do vencimento do
+#               prazo inicial de postagem (data_criacao + PRAZO_POSTAGEM_HORAS),
+#               validando pela virada do dia civil (hoje_sp > data_limite.date()).
 # ==============================================================================
 
 import os
@@ -295,7 +299,7 @@ def processar_etapa_1_recuperacao():
 
 def processar_etapa_2_encerramento_definitivo():
     """Etapa 2: Encerra definitivamente protocolos em status_id 19, 20 ou 21 cujo prazo final expirou e dispara C3."""
-    logging.info(f"[ETAPA 2] Verificando protocolos em repescagem (19, 20, 21) para encerramento definitivo (Carência: {PRAZO_CARENCIA_EXPIRACAO_DIAS}d)...")
+    logging.info(f"[ETAPA 2] Verificando protocolos em repescagem (19, 20, 21) para encerramento definitivo (Carência: {PRAZO_CARENCIA_EXPIRACAO_DIAS}d a partir do vencimento inicial)...")
     db = conectar_bd()
     candidatos = []
     cursor = None
@@ -334,9 +338,10 @@ def processar_etapa_2_encerramento_definitivo():
         logging.info("[ETAPA 2] Nenhum protocolo em repescagem encontrado.")
         return
 
+    agora_local = datetime.now()
     agora_sp = datetime.now(ZoneInfo("America/Sao_Paulo"))
     hoje_sp = agora_sp.date()
-    limite_carencia = datetime.now() - timedelta(days=PRAZO_CARENCIA_EXPIRACAO_DIAS)
+    limite_carencia = agora_local - timedelta(days=PRAZO_CARENCIA_EXPIRACAO_DIAS)
 
     total_encerrados = 0
 
@@ -345,8 +350,12 @@ def processar_etapa_2_encerramento_definitivo():
         num_prot = p['numero_protocolo']
         status_atual = p['status_id']
         laudo = p.get('laudo_tecnico') or ''
-        data_entrada = p.get('data_entrada_status') or p.get('data_criacao')
+        data_criacao = p.get('data_criacao')
+        data_entrada = p.get('data_entrada_status') or data_criacao
         data_hoje_str = p['data_hoje']
+
+        vencimento_inicial = data_criacao + timedelta(hours=PRAZO_POSTAGEM_HORAS) if data_criacao else None
+        data_limite_carencia = vencimento_inicial + timedelta(days=PRAZO_CARENCIA_EXPIRACAO_DIAS) if vencimento_inicial else None
 
         deve_encerrar = False
         motivo_c3 = None
@@ -369,19 +378,25 @@ def processar_etapa_2_encerramento_definitivo():
                 motivo_c3 = "prazo_reagendamento_vencido"
                 nota_laudo = "Encerramento definitivo (Gatilho C3): Prazo de reagendamento vencido sem postagem."
 
-        # Caso 2: Status 21 (Aguardando postagem - Carência de 10 dias)
+        # Caso 2: Status 21 (Aguardando postagem - Carência de 10 dias contados do vencimento inicial, até o fim do dia)
         elif status_atual == 21:
-            if data_entrada and data_entrada < limite_carencia:
+            if data_limite_carencia and hoje_sp > data_limite_carencia.date():
                 deve_encerrar = True
                 motivo_c3 = "prazo_carencia_vencido"
-                nota_laudo = f"Encerramento definitivo (Gatilho C3): Período de carência de {PRAZO_CARENCIA_EXPIRACAO_DIAS} dias encerrado sem postagem."
+                nota_laudo = (
+                    f"Encerramento definitivo (Gatilho C3): Período de carência de {PRAZO_CARENCIA_EXPIRACAO_DIAS} dias "
+                    f"(limite até o fim de {data_limite_carencia.strftime('%d/%m/%Y')}, contado do vencimento inicial) encerrado sem postagem."
+                )
 
-        # Caso 3: Status 19 (Prazo vencido - Em recuperação - Timeout de segurança 10 dias)
+        # Caso 3: Status 19 (Prazo vencido - Em recuperação - Timeout de segurança 10 dias do vencimento inicial, até o fim do dia)
         elif status_atual == 19:
-            if data_entrada and data_entrada < limite_carencia:
+            if data_limite_carencia and hoje_sp > data_limite_carencia.date():
                 deve_encerrar = True
                 motivo_c3 = "timeout_recuperacao"
-                nota_laudo = f"Encerramento definitivo (Gatilho C3): Timeout de {PRAZO_CARENCIA_EXPIRACAO_DIAS} dias em recuperação sem retorno do agente."
+                nota_laudo = (
+                    f"Encerramento definitivo (Gatilho C3): Timeout de {PRAZO_CARENCIA_EXPIRACAO_DIAS} dias "
+                    f"(limite até o fim de {data_limite_carencia.strftime('%d/%m/%Y')}, contado do vencimento inicial) em recuperação sem retorno do agente."
+                )
 
         if deve_encerrar and motivo_c3:
             logging.info(f"[ETAPA 2] Encerrando definitivamente protocolo {num_prot} (Motivo: {motivo_c3})...")
