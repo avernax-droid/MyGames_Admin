@@ -5,12 +5,12 @@
 # TÍTULO: Varredura de Expiração e Repescagem (Gatilhos C1 e C3)
 # FUNÇÃO: Script autônomo (Cronjob) executado em duas etapas:
 #         Etapa 1: Identifica protocolos em status_id = 1 que ultrapassaram
-#                  PRAZO_POSTAGEM_HORAS, move-os para status_id = 19 (Prazo vencido -
+#                  PRAZO_POSTAGEM_HORAS, move-os para status_id = 23 (Prazo vencido -
 #                  Em recuperação) e dispara o Gatilho C1 (protocolo_expirado).
-#         Etapa 2: Identifica protocolos em repescagem (status_id 19, 20 ou 21)
+#         Etapa 2: Identifica protocolos em repescagem (status_id 23, 24 ou 25)
 #                  que atingiram o limite final (data reagendada vencida, carência
 #                  de PRAZO_CARENCIA_EXPIRACAO_DIAS vencida ou timeout de recuperação),
-#                  encerra-os definitivamente (status = 'Expirado', status_id = 18)
+#                  encerra-os definitivamente (status = 'Expirado', status_id = 22)
 #                  e dispara o Gatilho C3 (protocolo_cancelado_prazo).
 # HISTÓRICO DE ALTERAÇÕES:
 # - 11/11/2026: Inclusão da política de retentativas (backoff 1m, 5m, 15m, 60m)
@@ -27,6 +27,9 @@
 #               timeout de recuperação (status_id 19) a partir do vencimento do
 #               prazo inicial de postagem (data_criacao + PRAZO_POSTAGEM_HORAS),
 #               validando pela virada do dia civil (hoje_sp > data_limite.date()).
+# - 24/11/2026: Realinhamento dos IDs de status para compatibilidade com a base
+#               de produção (Recuperação=23, Reagendado=24, Carência=25 e
+#               Expirado/Cancelado por prazo=22).
 # ==============================================================================
 
 import os
@@ -177,7 +180,7 @@ def disparar_gatilho_c3(numero_protocolo, motivo_c3, data_cancelamento):
 
 
 def iniciar_recuperacao_local(protocolo_id, nota_laudo):
-    """Move o protocolo de status_id = 1 para status_id = 19 (Prazo vencido - Em recuperação)."""
+    """Move o protocolo de status_id = 1 para status_id = 23 (Prazo vencido - Em recuperação)."""
     db = conectar_bd()
     cursor = None
     try:
@@ -185,7 +188,7 @@ def iniciar_recuperacao_local(protocolo_id, nota_laudo):
 
         query_update = """
             UPDATE protocolos_recompra 
-            SET status_id = 19,
+            SET status_id = 23,
                 laudo_tecnico = TRIM(CONCAT(IFNULL(laudo_tecnico, ''), '\n', %s))
             WHERE id = %s AND status = 'Aberto' AND status_id = 1
         """
@@ -197,14 +200,14 @@ def iniciar_recuperacao_local(protocolo_id, nota_laudo):
 
         query_log = """
             INSERT INTO historico_status_protocolo (protocolo_id, status_id, usuario_admin_id, data_alteracao)
-            VALUES (%s, 19, 1, NOW())
+            VALUES (%s, 23, 1, NOW())
         """
         cursor.execute(query_log, (protocolo_id,))
 
         db.commit()
         return True
     except mysql.connector.Error as e:
-        logging.error(f"Erro ao mover protocolo ID {protocolo_id} para recuperação (status_id=19): {e}")
+        logging.error(f"Erro ao mover protocolo ID {protocolo_id} para recuperação (status_id=23): {e}")
         db.rollback()
         return False
     finally:
@@ -215,7 +218,7 @@ def iniciar_recuperacao_local(protocolo_id, nota_laudo):
 
 
 def encerrar_protocolo_definitivo_local(protocolo_id, nota_laudo):
-    """Altera status macro para 'Expirado' e status_id para 18 ('Cancelado por prazo de postagem vencido')."""
+    """Altera status macro para 'Expirado' e status_id para 22 ('Cancelado por prazo de postagem vencido')."""
     db = conectar_bd()
     cursor = None
     try:
@@ -224,9 +227,9 @@ def encerrar_protocolo_definitivo_local(protocolo_id, nota_laudo):
         query_update = """
             UPDATE protocolos_recompra 
             SET status = 'Expirado', 
-                status_id = 18,
+                status_id = 22,
                 laudo_tecnico = TRIM(CONCAT(IFNULL(laudo_tecnico, ''), '\n', %s))
-            WHERE id = %s AND status = 'Aberto' AND status_id IN (19, 20, 21)
+            WHERE id = %s AND status = 'Aberto' AND status_id IN (23, 24, 25)
         """
         cursor.execute(query_update, (nota_laudo, protocolo_id))
 
@@ -236,14 +239,14 @@ def encerrar_protocolo_definitivo_local(protocolo_id, nota_laudo):
 
         query_log = """
             INSERT INTO historico_status_protocolo (protocolo_id, status_id, usuario_admin_id, data_alteracao)
-            VALUES (%s, 18, 1, NOW())
+            VALUES (%s, 22, 1, NOW())
         """
         cursor.execute(query_log, (protocolo_id,))
 
         db.commit()
         return True
     except mysql.connector.Error as e:
-        logging.error(f"Erro ao encerrar definitivamente protocolo ID {protocolo_id} (status_id=18): {e}")
+        logging.error(f"Erro ao encerrar definitivamente protocolo ID {protocolo_id} (status_id=22): {e}")
         db.rollback()
         return False
     finally:
@@ -254,7 +257,7 @@ def encerrar_protocolo_definitivo_local(protocolo_id, nota_laudo):
 
 
 def processar_etapa_1_recuperacao():
-    """Etapa 1: Protocolos em status_id = 1 com mais de PRAZO_POSTAGEM_HORAS entram em recuperação (19) e disparam C1."""
+    """Etapa 1: Protocolos em status_id = 1 com mais de PRAZO_POSTAGEM_HORAS entram em recuperação (23) e disparam C1."""
     logging.info(f"[ETAPA 1] Verificando vencimentos iniciais (> {PRAZO_POSTAGEM_HORAS}h) para disparo do Gatilho C1...")
     db = conectar_bd()
     protocolos_vencidos = []
@@ -284,7 +287,7 @@ def processar_etapa_1_recuperacao():
         logging.info("[ETAPA 1] Nenhum protocolo vencido na janela inicial.")
         return
 
-    logging.info(f"[ETAPA 1] Encontrados {len(protocolos_vencidos)} protocolos vencidos. Movendo para recuperação (status_id=19)...")
+    logging.info(f"[ETAPA 1] Encontrados {len(protocolos_vencidos)} protocolos vencidos. Movendo para recuperação (status_id=23)...")
     nota_recuperacao = f"Prazo inicial de {PRAZO_POSTAGEM_HORAS}h vencido. Protocolo movido para recuperação (Gatilho C1 enviado ao N8N)."
 
     for p in protocolos_vencidos:
@@ -293,13 +296,13 @@ def processar_etapa_1_recuperacao():
         data_hoje = p['data_hoje']
 
         if iniciar_recuperacao_local(prot_id, nota_recuperacao):
-            logging.info(f"[ETAPA 1] Protocolo {num_prot} movido para status_id=19. Disparando C1...")
+            logging.info(f"[ETAPA 1] Protocolo {num_prot} movido para status_id=23. Disparando C1...")
             disparar_gatilho_c1(num_prot, data_hoje)
 
 
 def processar_etapa_2_encerramento_definitivo():
-    """Etapa 2: Encerra definitivamente protocolos em status_id 19, 20 ou 21 cujo prazo final expirou e dispara C3."""
-    logging.info(f"[ETAPA 2] Verificando protocolos em repescagem (19, 20, 21) para encerramento definitivo (Carência: {PRAZO_CARENCIA_EXPIRACAO_DIAS}d a partir do vencimento inicial)...")
+    """Etapa 2: Encerra definitivamente protocolos em status_id 23, 24 ou 25 cujo prazo final expirou e dispara C3."""
+    logging.info(f"[ETAPA 2] Verificando protocolos em repescagem (23, 24, 25) para encerramento definitivo (Carência: {PRAZO_CARENCIA_EXPIRACAO_DIAS}d a partir do vencimento inicial)...")
     db = conectar_bd()
     candidatos = []
     cursor = None
@@ -321,7 +324,7 @@ def processar_etapa_2_encerramento_definitivo():
                 ) as data_entrada_status
             FROM protocolos_recompra p
             WHERE p.status = 'Aberto'
-              AND p.status_id IN (19, 20, 21)
+              AND p.status_id IN (23, 24, 25)
         """
         cursor.execute(query)
         candidatos = cursor.fetchall()
@@ -361,8 +364,8 @@ def processar_etapa_2_encerramento_definitivo():
         motivo_c3 = None
         nota_laudo = ""
 
-        # Caso 1: Status 20 (Reagendado - Aguardando postagem)
-        if status_atual == 20:
+        # Caso 1: Status 24 (Reagendado - Aguardando postagem)
+        if status_atual == 24:
             matches = re.findall(r'\[REAGENDADO_ATE:\s*(\d{4}-\d{2}-\d{2})\]', laudo)
             if matches:
                 try:
@@ -378,8 +381,8 @@ def processar_etapa_2_encerramento_definitivo():
                 motivo_c3 = "prazo_reagendamento_vencido"
                 nota_laudo = "Encerramento definitivo (Gatilho C3): Prazo de reagendamento vencido sem postagem."
 
-        # Caso 2: Status 21 (Aguardando postagem - Carência de 10 dias contados do vencimento inicial, até o fim do dia)
-        elif status_atual == 21:
+        # Caso 2: Status 25 (Aguardando postagem - Carência de 10 dias contados do vencimento inicial, até o fim do dia)
+        elif status_atual == 25:
             if data_limite_carencia and hoje_sp > data_limite_carencia.date():
                 deve_encerrar = True
                 motivo_c3 = "prazo_carencia_vencido"
@@ -388,8 +391,8 @@ def processar_etapa_2_encerramento_definitivo():
                     f"(limite até o fim de {data_limite_carencia.strftime('%d/%m/%Y')}, contado do vencimento inicial) encerrado sem postagem."
                 )
 
-        # Caso 3: Status 19 (Prazo vencido - Em recuperação - Timeout de segurança 10 dias do vencimento inicial, até o fim do dia)
-        elif status_atual == 19:
+        # Caso 3: Status 23 (Prazo vencido - Em recuperação - Timeout de segurança 10 dias do vencimento inicial, até o fim do dia)
+        elif status_atual == 23:
             if data_limite_carencia and hoje_sp > data_limite_carencia.date():
                 deve_encerrar = True
                 motivo_c3 = "timeout_recuperacao"

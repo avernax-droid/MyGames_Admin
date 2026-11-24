@@ -14,6 +14,8 @@
 # - 11/11/2026: Inclusão da política de retentativas (backoff 1m, 5m, 15m, 60m) no disparar_gatilho_b.
 # - 21/11/2026: Ampliação da varredura para status_id IN (1, 19, 20, 21) (repescagem/reagendamento/carência)
 #   e padronização da leitura de variáveis N8N_WEBHOOK_URL e N8N_BEARER_TOKEN do .env.
+# - 24/11/2026: Realinhamento dos IDs de status de repescagem para compatibilidade com a base
+#   de produção: status_id IN (1, 23, 24, 25).
 # ==============================================================================
 
 import os
@@ -238,12 +240,12 @@ def processar_varredura():
     
     try:
         cursor = db.cursor(dictionary=True)
-        # Seleciona protocolos aguardando postagem inicial (1) ou em fluxo de repescagem (19, 20, 21)
+        # Seleciona protocolos aguardando postagem inicial (1) ou em fluxo de repescagem (23, 24, 25)
         query = """
             SELECT id, numero_protocolo, codigo_rastreio 
             FROM protocolos_recompra 
             WHERE status = 'Aberto'
-              AND status_id IN (1, 19, 20, 21)
+              AND status_id IN (1, 23, 24, 25)
               AND codigo_rastreio IS NOT NULL 
               AND codigo_rastreio != ''
         """

@@ -64,6 +64,7 @@
 # - 04/11/2026: Refatoração da função cancelar_protocolo_agente para retornar códigos HTTP e nome do status_atual no formato da API.
 # - 13/11/2026: Sincronização da coluna textual status = 'Recusado' juntamente com status_id = 9 em cancelar_protocolo_agente e alinhamento das travas HTTP 409 ('Cancelado'/'Finalizado') conforme contrato N8N.
 # - 16/11/2026: Atualização da função cancelar_protocolo_agente para gravar status = 'Cancelado' (novo valor do ENUM) juntamente com status_id = 9 e validar estados terminais ('Cancelado', 'Expirado', 'Recusado' e status_id 9/18).
+# - 24/11/2026: Atualização da trava de estados terminais em cancelar_protocolo_agente para status_id in (9, 21, 22), evitando colisão com o status_id 18 (Produto Postado) da base de produção.
 # ==============================================================================
 import mysql.connector
 import os
@@ -1466,7 +1467,7 @@ def cancelar_protocolo_agente(protocolo_numero, motivo):
         if status_enum == 'Finalizado':
             return 409, "Operação negada. O protocolo encontra-se Finalizado.", "Finalizado"
             
-        if protocolo['status_id'] in (9, 18) or status_enum in ('Cancelado', 'Expirado', 'Recusado'):
+        if protocolo['status_id'] in (9, 21, 22) or status_enum in ('Cancelado', 'Expirado', 'Recusado'):
             return 409, "Operação negada. O protocolo já encontra-se Cancelado.", "Cancelado"
             
         # 3. Atualiza o status_id para 9 (Encerrado) e o ENUM status para 'Cancelado'
