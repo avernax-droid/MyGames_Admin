@@ -1,3 +1,4 @@
+cat << 'EOF' > /home/userverna/MyGames_Admin/.gitignore
 # Ambientes Virtuais
 venv/
 env/
@@ -20,8 +21,8 @@ __pycache__/
 !carga_configs.sql
 !requirements.txt
 
-# 1. Adiciona *.log ao .gitignore do MyGames
-echo "*.log" >> /home/userverna/MyGames/.gitignore
+# Arquivos de log
+*.log
 
 # Arquivos de Sistema Operacional
 .DS_Store
@@ -29,3 +30,10 @@ Thumbs.db
 
 # Documentação Interna (Não enviar)
 DOC/
+EOF
+
+cd /home/userverna/MyGames_Admin
+git rm --cached gatilho_b.log gatilho_c1.log
+git add .gitignore
+git commit -m "chore: corrige regra *.log no .gitignore e remove logs locais do rastreamento"
+git push origin main
