@@ -30,6 +30,9 @@
 # - 24/11/2026: Realinhamento dos IDs de status para compatibilidade com a base
 #               de produção (Recuperação=23, Reagendado=24, Carência=25 e
 #               Expirado/Cancelado por prazo=22).
+# - 28/11/2026: Substituição do usuario_admin_id fixo (1) pela subconsulta dinâmica
+#               do usuário de serviço dedicado webhooks_n8n (com fallback seguro)
+#               em iniciar_recuperacao_local e encerrar_protocolo_definitivo_local.
 # ==============================================================================
 
 import os
@@ -200,7 +203,15 @@ def iniciar_recuperacao_local(protocolo_id, nota_laudo):
 
         query_log = """
             INSERT INTO historico_status_protocolo (protocolo_id, status_id, usuario_admin_id, data_alteracao)
-            VALUES (%s, 23, 1, NOW())
+            VALUES (
+                %s,
+                23,
+                COALESCE(
+                    (SELECT id FROM usuarios_admin WHERE usuario_login = 'webhooks_n8n' LIMIT 1),
+                    (SELECT id FROM usuarios_admin ORDER BY id ASC LIMIT 1)
+                ),
+                NOW()
+            )
         """
         cursor.execute(query_log, (protocolo_id,))
 
@@ -239,7 +250,15 @@ def encerrar_protocolo_definitivo_local(protocolo_id, nota_laudo):
 
         query_log = """
             INSERT INTO historico_status_protocolo (protocolo_id, status_id, usuario_admin_id, data_alteracao)
-            VALUES (%s, 22, 1, NOW())
+            VALUES (
+                %s,
+                22,
+                COALESCE(
+                    (SELECT id FROM usuarios_admin WHERE usuario_login = 'webhooks_n8n' LIMIT 1),
+                    (SELECT id FROM usuarios_admin ORDER BY id ASC LIMIT 1)
+                ),
+                NOW()
+            )
         """
         cursor.execute(query_log, (protocolo_id,))
 

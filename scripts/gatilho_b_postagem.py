@@ -16,6 +16,8 @@
 #   e padronização da leitura de variáveis N8N_WEBHOOK_URL e N8N_BEARER_TOKEN do .env.
 # - 24/11/2026: Realinhamento dos IDs de status de repescagem para compatibilidade com a base
 #   de produção: status_id IN (1, 23, 24, 25).
+# - 28/11/2026: Substituição do usuario_admin_id fixo (1) pela subconsulta dinâmica do usuário de
+#   serviço dedicado webhooks_n8n (com fallback seguro) em avancar_status_local.
 # ==============================================================================
 
 import os
@@ -210,16 +212,25 @@ def disparar_gatilho_b(numero_protocolo, codigo_rastreio):
 def avancar_status_local(protocolo_id):
     """Avança o protocolo para Status 2 (Produto Recebido) e regista o histórico."""
     db = conectar_bd()
+    cursor = None
     try:
         cursor = db.cursor()
         
         query_update = "UPDATE protocolos_recompra SET status_id = 2 WHERE id = %s"
         cursor.execute(query_update, (protocolo_id,))
         
-        # ID 1 para o admin fictício 'Sistema' no histórico
+        # Atribui a movimentação ao usuário de serviço dedicado webhooks_n8n (com fallback seguro)
         query_log = """
             INSERT INTO historico_status_protocolo (protocolo_id, status_id, usuario_admin_id, data_alteracao)
-            VALUES (%s, 2, 1, NOW())
+            VALUES (
+                %s,
+                2,
+                COALESCE(
+                    (SELECT id FROM usuarios_admin WHERE usuario_login = 'webhooks_n8n' LIMIT 1),
+                    (SELECT id FROM usuarios_admin ORDER BY id ASC LIMIT 1)
+                ),
+                NOW()
+            )
         """
         cursor.execute(query_log, (protocolo_id,))
         db.commit()
@@ -229,8 +240,9 @@ def avancar_status_local(protocolo_id):
         db.rollback()
         return False
     finally:
-        if db and db.is_connected():
+        if cursor:
             cursor.close()
+        if db and db.is_connected():
             db.close()
 
 def processar_varredura():
