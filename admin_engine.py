@@ -65,6 +65,7 @@
 # - 13/11/2026: Sincronização da coluna textual status = 'Recusado' juntamente com status_id = 9 em cancelar_protocolo_agente e alinhamento das travas HTTP 409 ('Cancelado'/'Finalizado') conforme contrato N8N.
 # - 16/11/2026: Atualização da função cancelar_protocolo_agente para gravar status = 'Cancelado' (novo valor do ENUM) juntamente com status_id = 9 e validar estados terminais ('Cancelado', 'Expirado', 'Recusado' e status_id 9/18).
 # - 24/11/2026: Atualização da trava de estados terminais em cancelar_protocolo_agente para status_id in (9, 21, 22), evitando colisão com o status_id 18 (Produto Postado) da base de produção.
+# - 28/11/2026: Substituição do usuario_admin_id fixo (1) pela subconsulta dinâmica do usuário de serviço dedicado webhooks_n8n (com fallback seguro) em cancelar_protocolo_agente.
 # ==============================================================================
 import mysql.connector
 import os
@@ -1474,11 +1475,19 @@ def cancelar_protocolo_agente(protocolo_numero, motivo):
         query_update = "UPDATE protocolos_recompra SET status = 'Cancelado', status_id = 9 WHERE id = %s"
         cursor.execute(query_update, (protocolo_id,))
         
-        # 4. Grava o histórico atribuindo ao Admin ID 1 (Ação do Sistema) para satisfazer a regra NOT NULL
+        # 4. Grava o histórico atribuindo ao usuário de serviço dedicado webhooks_n8n (com fallback seguro)
         texto_motivo = f"Cancelamento via Agente de WhatsApp. Motivo: {motivo}"
         query_historico = """
             INSERT INTO historico_status_protocolo (protocolo_id, status_id, usuario_admin_id, data_alteracao)
-            VALUES (%s, 9, 1, NOW())
+            VALUES (
+                %s,
+                9,
+                COALESCE(
+                    (SELECT id FROM usuarios_admin WHERE usuario_login = 'webhooks_n8n' LIMIT 1),
+                    (SELECT id FROM usuarios_admin ORDER BY id ASC LIMIT 1)
+                ),
+                NOW()
+            )
         """
         cursor.execute(query_historico, (protocolo_id,))
         
